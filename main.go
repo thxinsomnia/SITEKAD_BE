@@ -21,7 +21,7 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 
 	// Register routes setelah router diinisialisasi
 	router.POST("/login", authcontroller.Login)
-	router.GET("/GA", absencontroller.GetAllUser)
+	router.GET("/GA", absencontroller.GetAllAbsen)
 
 	router.ServeHTTP(w, r)
 }

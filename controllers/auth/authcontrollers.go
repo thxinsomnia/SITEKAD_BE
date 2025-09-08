@@ -16,13 +16,13 @@ import (
 )
 
 func Login(c *gin.Context) {
-	var userInput models.User
+	var userInput models.Penempatan
 	if err := c.ShouldBindJSON(&userInput); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"Message": err.Error()})
 		return
 	}
 
-	var user models.User
+	var user models.Penempatan
 	if err := models.DB.Where("username = ?", userInput.Username).First(&user).Error; err != nil {
 		switch err {
 		case gorm.ErrRecordNotFound:
