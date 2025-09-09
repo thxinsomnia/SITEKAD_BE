@@ -22,6 +22,8 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 	router.POST("/login", authcontroller.Login)
 	router.GET("/histori", absencontroller.GetAllAbsen)
 	router.GET("/lokasi", lokasicontroller.GetAllLokasi)
+	router.POST("/aktivasi", authcontroller.Aktivasi)
+	router.GET("/logout", authcontroller.Logout)
 
 	router.ServeHTTP(w, r)
 }
