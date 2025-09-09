@@ -58,3 +58,70 @@ func Login(c *gin.Context) {
 	c.SetCookie("token", token, 36000, "/", "", false, true)
 	c.JSON(http.StatusOK, gin.H{"Message": "Login Berhasil!", "Token": token})
 }
+
+type ActivationPayload struct {
+    Nitad   string `json:"nitad" binding:"required"`
+    Username string `json:"username" binding:"required"`
+    Password string `json:"password" binding:"required"`
+}
+
+
+func Aktivasi(c *gin.Context) {
+    var payload ActivationPayload
+
+    if err := c.ShouldBindJSON(&payload); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"Message": "Input tidak valid: " + err.Error()})
+        return
+    }
+
+    var pkwt models.Pkwt 
+    err := models.DB.Where("nitad = ?", payload.Nitad).First(&pkwt).Error
+    if err != nil {
+        // Err Log
+        if err == gorm.ErrRecordNotFound {
+            c.JSON(http.StatusNotFound, gin.H{"Message": "Nitad tidak terdaftar"})
+            return
+        }
+        // Handle error
+        c.JSON(http.StatusInternalServerError, gin.H{"Message": "Server error"})
+        return
+    }
+    
+	
+	// var penempatan models.Penempatan
+	// if err := models.DB.Where("pkwt_id = ?", pkwt.ID).First(&penempatan).Error; err != nil {
+      
+	// 	c.JSON(http.StatusNotFound, gin.H{"Message": "Data penempatan untuk Nitad ini tidak ditemukan"})
+	// 	return
+	// }
+
+	// if penempatan.Username != "" {
+	// 	c.JSON(http.StatusConflict, gin.H{"Message": "Akun ini sudah pernah diaktifkan sebelumnya"})
+	// 	return 
+	// }
+  
+
+    hashPassword, _ := bcrypt.GenerateFromPassword([]byte(payload.Password), bcrypt.DefaultCost)
+
+    result := models.DB.Model(&models.Penempatan{}).Where("pkwt_id = ?", pkwt.Id).Updates(models.Penempatan{
+        Username: payload.Username,
+        Password: string(hashPassword),
+    })
+
+    if result.Error != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"Message": "Gagal mengaktifkan akun"})
+        return
+    }
+
+    if result.RowsAffected == 0 {
+        c.JSON(http.StatusNotFound, gin.H{"Message": "Data pengguna untuk diaktifkan tidak ditemukan"})
+        return
+    }
+
+    c.JSON(http.StatusOK, gin.H{"Message": "Akun berhasil diaktifkan!"})
+}
+
+func Logout(c *gin.Context) {
+	c.SetCookie("token", "", -1, "/", "", false, true)
+	c.JSON(http.StatusOK, gin.H{"Message": "Logout Berhasil!"})
+}
