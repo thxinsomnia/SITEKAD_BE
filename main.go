@@ -7,21 +7,21 @@ import (
 	"os"
 	"SITEKAD/controllers/absen"
 	"SITEKAD/controllers/auth"
+	"SITEKAD/controllers/lokasi"
 	"SITEKAD/models"
 	"github.com/gin-gonic/gin"
 )
 
 func init() {	
 	models.ConnectDatabase()
-	// Define your routes and handlers here
 }
 
 func Handler(w http.ResponseWriter, r *http.Request) {
 	router := gin.Default()
 
-	// Register routes setelah router diinisialisasi
 	router.POST("/login", authcontroller.Login)
-	router.GET("/GA", absencontroller.GetAllAbsen)
+	router.GET("/histori", absencontroller.GetAllAbsen)
+	router.GET("/lokasi", lokasicontroller.GetAllLokasi)
 
 	router.ServeHTTP(w, r)
 }
