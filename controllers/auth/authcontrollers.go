@@ -39,7 +39,7 @@ func Login(c *gin.Context) {
 		return
 	}
 
-	expTime := time.Now().Add(time.Minute * 3600)
+	expTime := time.Now().Add(time.Hour * 150)
 	claims := &config.JWTClaims{
 		Username: user.Username,
 		RegisteredClaims: jwt.RegisteredClaims{
@@ -55,7 +55,7 @@ func Login(c *gin.Context) {
 		return
 	}
 
-	c.SetCookie("token", token, 36000, "/", "", false, true)
+	c.SetCookie("token", token, 480000, "/", "", false, true)
 	c.JSON(http.StatusOK, gin.H{"Message": "Login Berhasil!", "Token": token})
 }
 
