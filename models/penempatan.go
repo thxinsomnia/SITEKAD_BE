@@ -19,6 +19,8 @@ type Penempatan struct {
 	Username         string    `gorm:"type varchar(255)" json:"username"`
 	Password         string    `gorm:"type varchar(255)" json:"password"`
 	Salt             string    `gorm:"type varchar(255)" json:"salt"`
+
+	Pkwt			Pkwt      `gorm:"foreignKey:Pkwt_id"`
 }
 
 func (Penempatan) TableName() string {
