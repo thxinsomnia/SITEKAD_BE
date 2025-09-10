@@ -60,65 +60,63 @@ func Login(c *gin.Context) {
 }
 
 type ActivationPayload struct {
-    Nitad   string `json:"nitad" binding:"required"`
-    Username string `json:"username" binding:"required"`
-    Password string `json:"password" binding:"required"`
+	Nitad    string `json:"nitad" binding:"required"`
+	Username string `json:"username" binding:"required"`
+	Password string `json:"password" binding:"required"`
 }
 
-
 func Aktivasi(c *gin.Context) {
-    var payload ActivationPayload
+	var payload ActivationPayload
 
-    if err := c.ShouldBindJSON(&payload); err != nil {
-        c.JSON(http.StatusBadRequest, gin.H{"Message": "Input tidak valid: " + err.Error()})
-        return
-    }
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"Message": "Input tidak valid: " + err.Error()})
+		return
+	}
 
-    var pkwt models.Pkwt 
-    err := models.DB.Where("nitad = ?", payload.Nitad).First(&pkwt).Error
-    if err != nil {
-        // Err Log
-        if err == gorm.ErrRecordNotFound {
-            c.JSON(http.StatusNotFound, gin.H{"Message": "Nitad tidak terdaftar"})
-            return
-        }
-        // Handle error
-        c.JSON(http.StatusInternalServerError, gin.H{"Message": "Server error"})
-        return
-    }
-    
-	
-	// var penempatan models.Penempatan
-	// if err := models.DB.Where("pkwt_id = ?", pkwt.ID).First(&penempatan).Error; err != nil {
-      
-	// 	c.JSON(http.StatusNotFound, gin.H{"Message": "Data penempatan untuk Nitad ini tidak ditemukan"})
-	// 	return
-	// }
+	var pkwt models.Pkwt
+	err := models.DB.Where("nitad = ?", payload.Nitad).First(&pkwt).Error
+	if err != nil {
+		// Err Log
+		if err == gorm.ErrRecordNotFound {
+			c.JSON(http.StatusNotFound, gin.H{"Message": "Nitad tidak terdaftar"})
+			return
+		}
+		// Handle error
+		c.JSON(http.StatusInternalServerError, gin.H{"Message": "Server error"})
+		return
+	}
 
-	// if penempatan.Username != "" {
-	// 	c.JSON(http.StatusConflict, gin.H{"Message": "Akun ini sudah pernah diaktifkan sebelumnya"})
-	// 	return 
-	// }
-  
+	var existingUser models.Penempatan
+	err = models.DB.Where("username = ?", payload.Username).First(&existingUser).Error
 
-    hashPassword, _ := bcrypt.GenerateFromPassword([]byte(payload.Password), bcrypt.DefaultCost)
+	if err == nil {
+		// Jika err == nil, artinya GORM BERHASIL menemukan user. Username sudah dipakai.
+		c.JSON(http.StatusConflict, gin.H{"Message": "Username sudah digunakan, silakan pilih yang lain"})
+		return
+	} else if err != gorm.ErrRecordNotFound {
+		// Handle jika ada error database selain "tidak ditemukan"
+		c.JSON(http.StatusInternalServerError, gin.H{"Message": "Gagal memvalidasi username"})
+		return
+	}
 
-    result := models.DB.Model(&models.Penempatan{}).Where("pkwt_id = ?", pkwt.Id).Updates(models.Penempatan{
-        Username: payload.Username,
-        Password: string(hashPassword),
-    })
+	hashPassword, _ := bcrypt.GenerateFromPassword([]byte(payload.Password), bcrypt.DefaultCost)
 
-    if result.Error != nil {
-        c.JSON(http.StatusInternalServerError, gin.H{"Message": "Gagal mengaktifkan akun"})
-        return
-    }
+	result := models.DB.Model(&models.Penempatan{}).Where("pkwt_id = ?", pkwt.Id).Updates(models.Penempatan{
+		Username: payload.Username,
+		Password: string(hashPassword),
+	})
 
-    if result.RowsAffected == 0 {
-        c.JSON(http.StatusNotFound, gin.H{"Message": "Data pengguna untuk diaktifkan tidak ditemukan"})
-        return
-    }
+	if result.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"Message": "Gagal mengaktifkan akun"})
+		return
+	}
 
-    c.JSON(http.StatusOK, gin.H{"Message": "Akun berhasil diaktifkan!"})
+	if result.RowsAffected == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"Message": "Data pengguna untuk diaktifkan tidak ditemukan"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"Message": "Akun berhasil diaktifkan!"})
 }
 
 func Logout(c *gin.Context) {
