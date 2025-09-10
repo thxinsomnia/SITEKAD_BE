@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"SITEKAD/middlewares"
 	"SITEKAD/controllers/absen"
 	"SITEKAD/controllers/auth"
 	"SITEKAD/controllers/lokasi"
@@ -19,11 +20,18 @@ func init() {
 func Handler(w http.ResponseWriter, r *http.Request) {
 	router := gin.Default()
 
-	router.POST("/login", authcontroller.Login)
+	router.POST("/login", absencontroller.LoginHandler)
 	router.GET("/histori", absencontroller.GetAllAbsen)
 	router.GET("/lokasi", lokasicontroller.GetAllLokasi)
 	router.POST("/aktivasi", authcontroller.Aktivasi)
 	router.GET("/logout", authcontroller.Logout)
+	
+
+	api := router.Group("/api")
+	api.Use(middlewares.AuthMiddleware())
+	api.POST("/absensi", absencontroller.ScanAbsensiHandler)
+	api.GET("/histori", absencontroller.GetAllAbsen)
+	api.GET("/lokasi", lokasicontroller.GetAllLokasi)
 
 	router.ServeHTTP(w, r)
 }
