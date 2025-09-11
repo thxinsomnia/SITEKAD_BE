@@ -20,7 +20,9 @@ type Penempatan struct {
 	Password         string    `gorm:"type varchar(255)" json:"password"`
 	Salt             string    `gorm:"type varchar(255)" json:"salt"`
 
-	Pkwt			Pkwt      `gorm:"foreignKey:Pkwt_id"`
+	Pkwt	Pkwt      `gorm:"foreignKey:Pkwt_id"`
+    Lokasi Lokasi `gorm:"foreignKey:Lokasi_kerja_id"`
+    Cabang Cabang `gorm:"foreignKey:Cabang_id"`
 }
 
 func (Penempatan) TableName() string {

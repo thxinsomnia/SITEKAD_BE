@@ -23,7 +23,12 @@ type Pkwt struct {
 	KeteranganStatus string `gorm:"type varchar(255)" json:"keterangan_status"`
 	JenisBhk string `gorm:"type varchar(255)" json:"jenis_bhk"`
 
+	Jabatan Jabatan `gorm:"foreignKey:JabatanId"`
+	Tad     Tad     `gorm:"foreignKey:TadId"`
+
 }
+
+
 
 func (Pkwt) TableName() string {
     return "pkwt"
