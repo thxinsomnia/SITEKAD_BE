@@ -4,8 +4,7 @@ import (
 	"net/http"
 	"time"
 
-	"SITEKAD/config"
-
+	"os"
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v4"
 
@@ -15,48 +14,50 @@ import (
 	"gorm.io/gorm"
 )
 
-func Login(c *gin.Context) {
-	var userInput models.Penempatan
-	if err := c.ShouldBindJSON(&userInput); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"Message": err.Error()})
-		return
-	}
 
-	var user models.Penempatan
-	if err := models.DB.Where("username = ?", userInput.Username).First(&user).Error; err != nil {
-		switch err {
-		case gorm.ErrRecordNotFound:
-			c.JSON(http.StatusUnauthorized, gin.H{"Message": "Username atau Password Tidak Sesuai"})
-			return
-		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"Message": err.Error()})
-			return
-		}
-	}
+type LoginPayload struct {
+    Username string `json:"username" binding:"required"`
+    Password string `json:"password" binding:"required"`
+}
 
-	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(userInput.Password)); err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"Message": "Username atau Password Tidak Sesuai"})
-		return
-	}
+func LoginHandler(c *gin.Context) {
+    var payload LoginPayload
+    if err := c.ShouldBindJSON(&payload); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"Message": "Input username dan password dibutuhkan"})
+        return
+    }
 
-	expTime := time.Now().Add(time.Hour * 150)
-	claims := &config.JWTClaims{
-		Username: user.Username,
-		RegisteredClaims: jwt.RegisteredClaims{
-			Issuer:    "go-jwt-mux",
-			ExpiresAt: jwt.NewNumericDate(expTime),
-		},
-	}
+    var user models.Penempatan
+    // 2. Gunakan .Preload("Pkwt") untuk mengambil data dari tabel pkwt juga
+    err := models.DB.Preload("Pkwt").Where("username = ?", payload.Username).First(&user).Error
+    if err != nil {
+        // Jika error (termasuk gorm.ErrRecordNotFound), pesannya sama agar lebih aman
+        c.JSON(http.StatusUnauthorized, gin.H{"Message": "Username atau Password Tidak Sesuai"})
+        return
+    }
 
-	tokenDeklarasi := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	token, err := tokenDeklarasi.SignedString(config.JWT_KEY)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"Message": err.Error()})
-		return
-	}
+    // 3. Verifikasi password (tidak berubah)
+    if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(payload.Password)); err != nil {
+        c.JSON(http.StatusUnauthorized, gin.H{"Message": "Username atau Password Tidak Sesuai"})
+        return
+    }
 
-	c.SetCookie("token", token, 480000, "/", "", false, true)
-	c.JSON(http.StatusOK, gin.H{"Message": "Login Berhasil!", "Token": token})
+
+    claims := jwt.MapClaims{
+        "id":  user.Id, 
+        "exp": time.Now().Add(time.Hour * 150).Unix(), 
+    }
+    
+    token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+    tokenString, err := token.SignedString([]byte(os.Getenv("JWT_KEY")))
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"Message": "Gagal membuat token"})
+        return
+    }
+    
+    // 5. Kirim token sebagai response JSON
+    // (Menghapus SetCookie karena untuk API, token biasanya dikelola oleh client/frontend)
+    c.JSON(http.StatusOK, gin.H{"token": tokenString})
 }
 
 type ActivationPayload struct {
