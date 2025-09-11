@@ -62,38 +62,38 @@ func AuthMiddleware() gin.HandlerFunc {
 		// 1. Ambil token dari Authorization header
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Authorization header dibutuhkan"})
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"Peringatan": "Silahkan Login Terlebih Dahulu!"})
 			return
 		}
 
 		// Header format: "Bearer {token}"
 		parts := strings.Split(authHeader, " ")
 		if len(parts) != 2 || parts[0] != "Bearer" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Authorization header harus berformat Bearer {token}"})
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"Peringatan": "Silahkan Login Terlebih Dahulu!"})
 			return
 		}
 
 		tokenString := parts[1]
-		secretKey := os.Getenv("JWT_SECRET_KEY")
+		secretKey := os.Getenv("JWT_KEY")
 
 		// 2. Parse dan validasi token
 		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 			// Pastikan algoritma sesuai
 			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-				return nil, jwt.NewValidationError("Metode signing tidak valid", jwt.ValidationErrorSignatureInvalid)
+				return nil, jwt.NewValidationError("Metode Signing Tidak Valid", jwt.ValidationErrorSignatureInvalid)
 			}
 			return []byte(secretKey), nil
 		})
 
 		if err != nil || !token.Valid {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Token tidak valid atau sudah kedaluwarsa"})
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"Error":"Token Tidak Valid atau Sudah Kedaluwarsa!"})
 			return
 		}
 
 		// 3. Ekstrak ID pengguna dari claims
 		claims, ok := token.Claims.(jwt.MapClaims)
 		if !ok {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Gagal memproses token"})
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"Error": "Gagal Memproses Token!"})
 			return
 		}
 
@@ -102,11 +102,18 @@ func AuthMiddleware() gin.HandlerFunc {
 
 		// 4. Ambil data lengkap pengguna DENGAN PRELOAD
 		var penempatan models.Penempatan
-		if err := models.DB.Preload("Pkwt").First(&penempatan, penempatanID).Error; err != nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Pengguna yang terasosiasi dengan token tidak ditemukan"})
+		err = models.DB.
+			Preload("Lokasi").
+			Preload("Cabang").
+			Preload("Pkwt").
+			Preload("Pkwt.Jabatan").
+			Preload("Pkwt.Tad").
+			First(&penempatan, penempatanID).Error
+
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"Error": "Pengguna Tidak Ditemukan!"})
 			return
 		}
-
 		// 5. Simpan objek PENGGUNA YANG LENGKAP ke dalam context Gin
 		c.Set("currentUser", penempatan)
 
