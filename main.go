@@ -41,7 +41,7 @@ func main() {
 		api.GET("/lokasi", lokasicontroller.GetAllLokasi)
 		api.GET("/uhistori", absencontroller.GetHistoryUser)
 		api.GET("/profile", profilecontroller.GetUserProfile)
-		api.POST("/lembur/start", controllers.StartOvertimeHandler)
+		api.POST("/lembur/start", lemburcontrollers.StartOvertimeHandler)
 	}
 
 	// 5. Jalankan Server
