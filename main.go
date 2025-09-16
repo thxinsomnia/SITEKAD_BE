@@ -9,6 +9,7 @@ import (
 	"SITEKAD/controllers/auth"
 	"SITEKAD/controllers/lokasi"
 	"SITEKAD/controllers/profile"
+	"SITEKAD/controllers/lembur"
 	"SITEKAD/models"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-contrib/cors"
@@ -40,6 +41,7 @@ func main() {
 		api.GET("/lokasi", lokasicontroller.GetAllLokasi)
 		api.GET("/uhistori", absencontroller.GetHistoryUser)
 		api.GET("/profile", profilecontroller.GetUserProfile)
+		api.POST("/lembur/start", controllers.StartOvertimeHandler)
 	}
 
 	// 5. Jalankan Server
