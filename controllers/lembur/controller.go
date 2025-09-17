@@ -8,12 +8,13 @@ import (
 	"net/http"
 	"path/filepath"
 	"time"
-	"gorm.io/gorm"
+
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 func StartOvertimeHandler(c *gin.Context) {
-	
+
 	//get data dari token
 	userData, _ := c.Get("currentUser")
 	currentUser := userData.(models.Penempatan)
@@ -38,11 +39,13 @@ func StartOvertimeHandler(c *gin.Context) {
 	}
 
 	//cek file
-	file, err := c.FormFile("spl_file") 
+	file, err := c.FormFile("spl_file")
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "File SPL wajib diunggah!"})
 		return
 	}
+
+	
 
 	//ambil form data
 	koordinat := c.PostForm("koordinat")
@@ -56,7 +59,7 @@ func StartOvertimeHandler(c *gin.Context) {
 	hashedFilename := hex.EncodeToString(hasher.Sum(nil)) + extension
 
 	//simpan file di server
-	destinationPath := filepath.Join("uploads/spl", hashedFilename)
+	destinationPath := filepath.Join("/var/www/html/presensi/uploads/spl", hashedFilename)
 	if err := c.SaveUploadedFile(file, destinationPath); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menyimpan file"})
 		return
@@ -73,12 +76,12 @@ func StartOvertimeHandler(c *gin.Context) {
 		Cabang_id:     currentUser.Cabang_id,
 		Lokasi_id:     currentUser.Lokasi_kerja_id,
 		Jabatan_id:    currentUser.Jabatan_id,
-		Spl:           hashedFilename, 
+		Spl:           hashedFilename,
 		Tgl_absen:     tanggalHariIni,
 		Jam_masuk:     jamSaatIni,
 		Kordmasuk:     koordinat,
 		Andid_masuk:   androidID,
-		Check:        tanggalHariIni + " " + jamSaatIni,
+		Check:         tanggalHariIni + " " + jamSaatIni,
 	}
 
 	if err := models.DB.Create(&newLembur).Error; err != nil {
@@ -87,18 +90,16 @@ func StartOvertimeHandler(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
-		"message":      "Sesi lembur berhasil dimulai",
+		"message":       "Sesi lembur berhasil dimulai",
 		"file_disimpan": hashedFilename,
 	})
 }
 
-
 type EndOvertimePayload struct {
 	Latitude  float64 `json:"latitude" binding:"required"`
 	Longitude float64 `json:"longitude" binding:"required"`
-	AndroidID    string `json:"android_id" binding:"required"`
+	AndroidID string  `json:"android_id" binding:"required"`
 }
-
 
 func EndOvertimeHandler(c *gin.Context) {
 
