@@ -8,43 +8,61 @@ import (
 	"net/http"
 	"path/filepath"
 	"time"
-
+	"gorm.io/gorm"
 	"github.com/gin-gonic/gin"
 )
 
 func StartOvertimeHandler(c *gin.Context) {
-	// 1. Ambil data pengguna yang sudah disiapkan oleh middleware
+	
+	//get data dari token
 	userData, _ := c.Get("currentUser")
 	currentUser := userData.(models.Penempatan)
 
-	// 2. Ambil file dari request multipart
-	file, err := c.FormFile("spl_file") // "spl_file" adalah nama field untuk file di form
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "File SPL wajib diunggah"})
+	//cek udah checkin atau belum maks 12 jam
+	var existingLembur models.Lembur
+	twelveHoursAgo := time.Now().Add(-12 * time.Hour)
+	err := models.DB.Where(
+		"penempatan_id = ? AND jam_keluar IS NULL AND created_at > ?",
+		currentUser.Id,
+		twelveHoursAgo,
+	).First(&existingLembur).Error
+	if err == nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "Anda sudah memiliki sesi lembur yang aktif. Harap selesaikan (check-out) sesi tersebut terlebih dahulu."})
 		return
 	}
 
-	// 3. Ambil data teks lainnya dari request multipart
+	//console log
+	if err != gorm.ErrRecordNotFound {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal memverifikasi sesi lembur"})
+		return
+	}
+
+	//cek file
+	file, err := c.FormFile("spl_file") 
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "File SPL wajib diunggah!"})
+		return
+	}
+
+	//ambil form data
 	koordinat := c.PostForm("koordinat")
 	androidID := c.PostForm("android_id")
 
-	// 4. Buat nama file yang di-hash
-	//    (timestamp + nama asli file untuk keunikan)
+	//hash
 	extension := filepath.Ext(file.Filename)
 	stringToHash := fmt.Sprintf("%d-%s", time.Now().UnixNano(), file.Filename)
 	hasher := sha256.New()
 	hasher.Write([]byte(stringToHash))
 	hashedFilename := hex.EncodeToString(hasher.Sum(nil)) + extension
 
-	// 5. Simpan file ke server
-	//    Pastikan Anda sudah membuat folder "uploads/spl" di proyek Anda
+	//simpan file di server
 	destinationPath := filepath.Join("uploads/spl", hashedFilename)
 	if err := c.SaveUploadedFile(file, destinationPath); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menyimpan file"})
 		return
 	}
 
-	// 6. Siapkan dan simpan data ke database
+	// input ke db
 	now := time.Now()
 	tanggalHariIni := now.Format("2006-01-02")
 	jamSaatIni := now.Format("15:04:05")
@@ -55,11 +73,12 @@ func StartOvertimeHandler(c *gin.Context) {
 		Cabang_id:     currentUser.Cabang_id,
 		Lokasi_id:     currentUser.Lokasi_kerja_id,
 		Jabatan_id:    currentUser.Jabatan_id,
-		Spl:           hashedFilename, // Simpan nama file yang sudah di-hash
+		Spl:           hashedFilename, 
 		Tgl_absen:     tanggalHariIni,
 		Jam_masuk:     jamSaatIni,
 		Kordmasuk:     koordinat,
 		Andid_masuk:   androidID,
+		Check:        tanggalHariIni + " " + jamSaatIni,
 	}
 
 	if err := models.DB.Create(&newLembur).Error; err != nil {
@@ -71,4 +90,68 @@ func StartOvertimeHandler(c *gin.Context) {
 		"message":      "Sesi lembur berhasil dimulai",
 		"file_disimpan": hashedFilename,
 	})
+}
+
+
+// EndOvertimeHandler untuk menyelesaikan sesi lembur
+type EndOvertimePayload struct {
+	Latitude  float64 `json:"latitude" binding:"required"`
+	Longitude float64 `json:"longitude" binding:"required"`
+	AndroidID    string `json:"android_id" binding:"required"`
+}
+
+// EndOvertimeHandler untuk menyelesaikan sesi lembur
+func EndOvertimeHandler(c *gin.Context) {
+	// 1. Ambil data pengguna dari middleware
+	userData, _ := c.Get("currentUser")
+	currentUser := userData.(models.Penempatan)
+
+	
+
+	// 2. Bind payload dari request untuk mendapatkan data device
+	var payload EndOvertimePayload
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Input tidak valid: " + err.Error()})
+		return
+
+	}
+
+	koordinatString := fmt.Sprintf("%f, %f", payload.Latitude, payload.Longitude)
+	// 3. Cari sesi lembur yang aktif milik pengguna ini (tidak berubah)
+	var lembur models.Lembur
+	err := models.DB.Where("penempatan_id = ? AND jam_keluar IS NULL", currentUser.Id).First(&lembur).Error
+
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Tidak ada sesi lembur aktif yang ditemukan untuk diakhiri"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mencari data lembur"})
+		return
+	}
+
+	if payload.AndroidID != lembur.Andid_masuk {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Perangkat yang digunakan untuk check-out berbeda dengan saat check-in"})
+		return
+	}
+
+	// 4. Siapkan data waktu dan lakukan update
+	now := time.Now()
+	tanggalHariIni := now.Format("2006-01-02")
+	jamSaatIni := now.Format("15:04:05")
+
+	// Lakukan update dengan menyertakan data koordinat dan android_id dari payload
+	result := models.DB.Model(&lembur).Updates(models.Lembur{
+		Tgl_keluar:   &tanggalHariIni,
+		Jam_keluar:   &jamSaatIni,
+		Kordkeluar:   &koordinatString,
+		Andid_keluar: &payload.AndroidID,
+	})
+
+	if result.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menyelesaikan sesi lembur"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Sesi lembur berhasil diakhiri pada jam " + jamSaatIni})
 }

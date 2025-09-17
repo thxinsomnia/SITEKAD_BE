@@ -5,3 +5,5 @@ bin
 SITEKAD.exe
 vendor 
 SITEKAD
+uploads
+.DS_Store

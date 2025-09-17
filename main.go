@@ -42,6 +42,7 @@ func main() {
 		api.GET("/uhistori", absencontroller.GetHistoryUser)
 		api.GET("/profile", profilecontroller.GetUserProfile)
 		api.POST("/lembur/start", lemburcontrollers.StartOvertimeHandler)
+		api.PUT("/lembur/end", lemburcontrollers.EndOvertimeHandler)
 	}
 
 	// 5. Jalankan Server
