@@ -93,22 +93,18 @@ func StartOvertimeHandler(c *gin.Context) {
 }
 
 
-// EndOvertimeHandler untuk menyelesaikan sesi lembur
 type EndOvertimePayload struct {
 	Latitude  float64 `json:"latitude" binding:"required"`
 	Longitude float64 `json:"longitude" binding:"required"`
 	AndroidID    string `json:"android_id" binding:"required"`
 }
 
-// EndOvertimeHandler untuk menyelesaikan sesi lembur
+
 func EndOvertimeHandler(c *gin.Context) {
-	// 1. Ambil data pengguna dari middleware
+
 	userData, _ := c.Get("currentUser")
 	currentUser := userData.(models.Penempatan)
 
-	
-
-	// 2. Bind payload dari request untuk mendapatkan data device
 	var payload EndOvertimePayload
 	if err := c.ShouldBindJSON(&payload); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Input tidak valid: " + err.Error()})
@@ -117,7 +113,6 @@ func EndOvertimeHandler(c *gin.Context) {
 	}
 
 	koordinatString := fmt.Sprintf("%f, %f", payload.Latitude, payload.Longitude)
-	// 3. Cari sesi lembur yang aktif milik pengguna ini (tidak berubah)
 	var lembur models.Lembur
 	err := models.DB.Where("penempatan_id = ? AND jam_keluar IS NULL", currentUser.Id).First(&lembur).Error
 
@@ -135,12 +130,9 @@ func EndOvertimeHandler(c *gin.Context) {
 		return
 	}
 
-	// 4. Siapkan data waktu dan lakukan update
 	now := time.Now()
 	tanggalHariIni := now.Format("2006-01-02")
 	jamSaatIni := now.Format("15:04:05")
-
-	// Lakukan update dengan menyertakan data koordinat dan android_id dari payload
 	result := models.DB.Model(&lembur).Updates(models.Lembur{
 		Tgl_keluar:   &tanggalHariIni,
 		Jam_keluar:   &jamSaatIni,
