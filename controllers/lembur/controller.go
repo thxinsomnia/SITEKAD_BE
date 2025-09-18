@@ -8,92 +8,80 @@ import (
 	"net/http"
 	"path/filepath"
 	"time"
+	"os"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
 
-func StartOvertimeHandler(c *gin.Context) {
 
-	//get data dari token
-	userData, _ := c.Get("currentUser")
-	currentUser := userData.(models.Penempatan)
 
-	//cek udah checkin atau belum maks 12 jam
-	var existingLembur models.Lembur
-	twelveHoursAgo := time.Now().Add(-12 * time.Hour)
-	err := models.DB.Where(
-		"penempatan_id = ? AND jam_keluar IS NULL AND created_at > ?",
-		currentUser.Id,
-		twelveHoursAgo,
-	).First(&existingLembur).Error
-	if err == nil {
-		c.JSON(http.StatusConflict, gin.H{"error": "Anda sudah memiliki sesi lembur yang aktif. Harap selesaikan (check-out) sesi tersebut terlebih dahulu."})
-		return
-	}
-
-	//console log
-	if err != gorm.ErrRecordNotFound {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal memverifikasi sesi lembur"})
-		return
-	}
-
-	//cek file
-	file, err := c.FormFile("spl_file")
+func handleFileUpload(c *gin.Context) (string, error) {
+	fileHeader, err := c.FormFile("spl_file")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "File SPL wajib diunggah!"})
-		return
+		return "", fmt.Errorf("file SPL wajib diunggah")
 	}
 
-	
+	file, err := fileHeader.Open()
+	if err != nil {
+		return "", fmt.Errorf("gagal membuka file")
+	}
+	defer file.Close()
 
-	//ambil form data
-	koordinat := c.PostForm("koordinat")
-	androidID := c.PostForm("android_id")
+	// Anda bisa menambahkan validasi tipe dan ukuran file di sini
+	ext := filepath.Ext(fileHeader.Filename)
+	allowedExts := map[string]bool{".jpg": true, ".jpeg": true, ".png": true, ".pdf": true}
+	if !allowedExts[ext] {
+		c.JSON(http.StatusUnsupportedMediaType, gin.H{"error": "Format File Tidak Sesuai! Hanya file jpg, png, pdf Yang Diizinkan!"})
+		return "", fmt.Errorf("format file tidak diizinkan")
+	}
 
-	//hash
-	extension := filepath.Ext(file.Filename)
-	stringToHash := fmt.Sprintf("%d-%s", time.Now().UnixNano(), file.Filename)
+	buffer := make([]byte, 512)
+	_, err = file.Read(buffer)
+	if err != nil {
+		return "", fmt.Errorf("gagal membaca file untuk validasi")
+	}
+
+	// PENTING: Kembalikan pointer file ke awal agar bisa disimpan nanti
+	_, err = file.Seek(0, 0)
+	if err != nil {
+		return "", fmt.Errorf("gagal mereset file reader")
+	}
+
+	// Deteksi tipe konten
+	mimeType := http.DetectContentType(buffer)
+	allowedMimes := map[string]bool{
+		"image/jpeg":      true,
+		"image/png":       true,
+		"application/pdf": true,
+	}
+
+	if !allowedMimes[mimeType] {
+		return "", fmt.Errorf("tipe konten file terdeteksi tidak valid: %s", mimeType)
+	}
+
+	extension := filepath.Ext(fileHeader.Filename)
+	stringToHash := fmt.Sprintf("%d-%s", time.Now().UnixNano(), fileHeader.Filename)
 	hasher := sha256.New()
 	hasher.Write([]byte(stringToHash))
 	hashedFilename := hex.EncodeToString(hasher.Sum(nil)) + extension
 
-	//simpan file di server
-	destinationPath := filepath.Join("/var/www/html/presensi/uploads/spl", hashedFilename)
-	if err := c.SaveUploadedFile(file, destinationPath); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menyimpan file"})
-		return
+	// Ambil path dari environment variable agar lebih fleksibel
+	uploadPath := os.Getenv("UPLOAD_PATH")
+	if uploadPath == "" {
+		uploadPath = "uploads/spl" // Default path jika tidak di-set
 	}
 
-	// input ke db
-	now := time.Now()
-	tanggalHariIni := now.Format("2006-01-02")
-	jamSaatIni := now.Format("15:04:05")
-
-	newLembur := models.Lembur{
-		Penempatan_id: currentUser.Id,
-		Tad_id:        currentUser.Pkwt.TadId,
-		Cabang_id:     currentUser.Cabang_id,
-		Lokasi_id:     currentUser.Lokasi_kerja_id,
-		Jabatan_id:    currentUser.Jabatan_id,
-		Spl:           hashedFilename,
-		Tgl_absen:     tanggalHariIni,
-		Jam_masuk:     jamSaatIni,
-		Kordmasuk:     koordinat,
-		Andid_masuk:   androidID,
-		Check:         tanggalHariIni + " " + jamSaatIni,
+	destinationPath := filepath.Join(uploadPath, hashedFilename)
+	if err := c.SaveUploadedFile(fileHeader, destinationPath); err != nil {
+		return "", fmt.Errorf("gagal menyimpan file")
 	}
 
-	if err := models.DB.Create(&newLembur).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menyimpan data lembur"})
-		return
-	}
-
-	c.JSON(http.StatusCreated, gin.H{
-		"message":       "Sesi lembur berhasil dimulai",
-		"file_disimpan": hashedFilename,
-	})
+	return hashedFilename, nil
 }
+
+// Handler utama yang sekarang lebih bersih
+
 
 type EndOvertimePayload struct {
 	Latitude  float64 `json:"latitude" binding:"required"`

@@ -19,6 +19,7 @@ import (
 func main() {
 	models.ConnectDatabase()
 	router := gin.Default()
+	router.MaxMultipartMemory = 8 << 20 
 
 	//Cors
 	router.Use(cors.New(cors.Config{
