@@ -81,7 +81,93 @@ func handleFileUpload(c *gin.Context) (string, error) {
 }
 
 // Handler utama yang sekarang lebih bersih
+func StartOvertimeHandler(c *gin.Context) {
+	userData, exists := c.Get("currentUser")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Sesi pengguna tidak valid"})
+		return
+	}
+	currentUser := userData.(models.Penempatan)
 
+	// 2. Cek sesi lembur yang aktif (tidak berubah)
+	var existingLembur models.Lembur
+	twelveHoursAgo := time.Now().Add(-12 * time.Hour)
+	err := models.DB.Where("penempatan_id = ? AND jam_keluar IS NULL AND created_at > ?", currentUser.Id, twelveHoursAgo).First(&existingLembur).Error
+	if err == nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "Anda sudah memiliki sesi lembur yang aktif."})
+		return
+	}
+	if err != gorm.ErrRecordNotFound {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal memverifikasi sesi lembur"})
+		return
+	}
+
+	// 3. Panggil fungsi bantuan untuk menangani file
+	hashedFilename, errFile := handleFileUpload(c)
+	if errFile != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": errFile.Error()})
+		return
+	}
+
+	// 4. Ambil data form (tidak berubah)
+	latitude := c.PostForm("latitude")
+	longitude := c.PostForm("longitude")
+	androidID := c.PostForm("android_id")
+	if len(longitude) > 50 || len(androidID) > 50 || len(latitude) > 50 || len(longitude) > 50 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Input Tidak Valid!"})
+		return
+	}
+    // (Tambahkan validasi input kosong di sini jika perlu)
+
+	if latitude == "" {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Mohon Aktifkan Izin Lokasi!"})
+		return
+	}
+	if longitude == "" {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Mohon Aktifkan Izin Lokasi!"})
+		return
+	}
+	if androidID == "" {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Mohon Berikan Izin Akses Perangkat Agar Dapat Melakukan Absensi!"})
+        return
+    }
+	koordinat := fmt.Sprintf("%s, %s", latitude, longitude)
+
+	// 5. Input ke DB
+	now := time.Now()
+	tanggalHariIni := now.Format("2006-01-02")
+	jamSaatIni := now.Format("15:04:05")
+
+	newLembur := models.Lembur{
+		Penempatan_id: currentUser.Id,
+		Tad_id:        currentUser.Pkwt.TadId,
+		Cabang_id:     currentUser.Cabang_id,
+		Lokasi_id:     currentUser.Lokasi_kerja_id,
+		Jabatan_id:    currentUser.Jabatan_id,
+		Spl:           hashedFilename,
+		Tgl_absen:     tanggalHariIni,
+		Jam_masuk:     jamSaatIni,
+		Kordmasuk:     koordinat,
+		Andid_masuk:   androidID,
+		Check:         tanggalHariIni + " " + jamSaatIni,
+	}
+
+	if errDb := models.DB.Create(&newLembur).Error; errDb != nil {
+		// Jika gagal menyimpan ke DB, hapus file yang sudah diunggah
+		uploadPath := os.Getenv("UPLOAD_PATH")
+		if uploadPath == "" {
+			uploadPath = "./uploads"
+		}
+		os.Remove(filepath.Join(uploadPath, hashedFilename)) // Hapus file "sampah"
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menyimpan data lembur"})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{
+		"message":      "Sesi lembur berhasil dimulai",
+		"file_disimpan": hashedFilename,
+	})
+}
 
 type EndOvertimePayload struct {
 	Latitude  float64 `json:"latitude" binding:"required"`
