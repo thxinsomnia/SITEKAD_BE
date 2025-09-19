@@ -222,3 +222,21 @@ func EndOvertimeHandler(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"message": "Sesi lembur berhasil diakhiri pada jam " + jamSaatIni})
 }
+
+func GetHistoryLembur(c *gin.Context) {
+    userData, exists := c.Get("currentUser")
+    if !exists {
+        c.JSON(http.StatusUnauthorized, gin.H{"error": "Sesi pengguna tidak valid"})
+        return
+    }
+    currentUser := userData.(models.Penempatan)
+    var history []models.Lembur
+    err := models.DB.Where("penempatan_id = ?", currentUser.Id).Order("tgl_absen DESC, jam_masuk DESC").Find(&history).Error
+
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil riwayat lembur"})
+        return
+    }
+
+    c.JSON(http.StatusOK, gin.H{"history": history})
+}
