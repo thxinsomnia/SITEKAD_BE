@@ -68,11 +68,16 @@ func ScanAbsensiHandler(c *gin.Context) {
 	tanggalHariIni := now.Format("2006-01-02")
 	jamSaatIni := now.Format("15:04:05")
 
+
 	koordinatString := fmt.Sprintf("%f, %f", payload.Latitude, payload.Longitude)
 
 
 	var absensi models.Absensi
-	err = models.DB.Where("penempatan_id = ? AND tgl_absen = ?", currentUser.Id, tanggalHariIni).First(&absensi).Error
+
+	err = models.DB.Where("penempatan_id = ? AND tgl_absen = ?",
+		currentUser.Id,
+		tanggalHariIni,
+	).First(&absensi).Error
 
 
 	switch err {
@@ -89,6 +94,7 @@ func ScanAbsensiHandler(c *gin.Context) {
 			Kordmasuk:     koordinatString,
 			Andid_masuk:   payload.AndroidID,
 			Check: 	   tanggalHariIni + " " + jamSaatIni,
+			
 		}
 
 		if err := models.DB.Create(&newAbsen).Error; err != nil {
@@ -104,12 +110,32 @@ func ScanAbsensiHandler(c *gin.Context) {
 			return
 		}
 
+		batasDurasi := 12 * time.Hour
+        durasiSesi := time.Since(absensi.CreatedAt) // Menghitung durasi
+
+        if durasiSesi > batasDurasi {
+            // Jawaban: Ya, sudah lebih dari 12 jam.
+            c.JSON(http.StatusForbidden, gin.H{"error": "Sesi kerja Anda sudah lebih dari 12 jam. Harap hubungi admin."})
+            return
+        }
+
+		var tanggalKeluar string
+		hour := now.Hour()
+		if hour >= 0 && hour < 6 {
+			// Checkout dini hari -> masuk ke shift malam sebelumnya
+			tanggalKeluar = now.AddDate(0, 0, -1).Format("2006-01-02")
+		} else {
+			// Selain itu, checkout pakai tanggal hari ini
+			tanggalKeluar = now.Format("2006-01-02")
+		}
+		
+
 		models.DB.Model(&absensi).Updates(models.Absensi{
-			Tgl_keluar:   &tanggalHariIni,
+			Tgl_keluar:   &tanggalKeluar,
 			Jam_keluar:   &jamSaatIni,
 			Kordkeluar:   &koordinatString,
 			Andid_keluar: &payload.AndroidID,
-			Check: 	   tanggalHariIni + " " + jamSaatIni,
+			Check: 	   tanggalKeluar + " " + jamSaatIni,
 			Jenis: &payload.Jenis,
 		})
         c.JSON(http.StatusOK, gin.H{"message": "Check-out berhasil pada jam " + jamSaatIni})
