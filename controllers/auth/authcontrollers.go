@@ -64,6 +64,7 @@ type ActivationPayload struct {
 	Nitad    string `json:"nitad" binding:"required"`
 	Username string `json:"username" binding:"required"`
 	Password string `json:"password" binding:"required"`
+	AndroidID string `json:"android_id" binding:"required"`
 }
 
 func Aktivasi(c *gin.Context) {
@@ -105,6 +106,7 @@ func Aktivasi(c *gin.Context) {
 	result := models.DB.Model(&models.Penempatan{}).Where("pkwt_id = ?", pkwt.Id).Updates(models.Penempatan{
 		Username: payload.Username,
 		Password: string(hashPassword),
+		AndroidID: payload.AndroidID,
 	})
 
 	if result.Error != nil {

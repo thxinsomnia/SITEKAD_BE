@@ -19,6 +19,7 @@ type Penempatan struct {
 	Username         string    `gorm:"type varchar(255)" json:"username"`
 	Password         string    `gorm:"type varchar(255)" json:"password"`
 	Salt             string    `gorm:"type varchar(255)" json:"salt"`
+	AndroidID       string    `gorm:"type varchar(100)" json:"android_id"`
 
 	Pkwt	Pkwt      `gorm:"foreignKey:Pkwt_id"`
     Lokasi Lokasi `gorm:"foreignKey:Lokasi_kerja_id"`

@@ -29,23 +29,27 @@ func main() {
 		AllowCredentials: true,
 	}))
 
-
-	router.POST("/login", authcontroller.LoginHandler)
-	router.POST("/aktivasi", authcontroller.Aktivasi)
-	router.GET("/logout", authcontroller.Logout)
-
-	api := router.Group("/api")
-	api.Use(middlewares.AuthMiddleware())
+	v1 := router.Group("/v1")
 	{
-		api.POST("/absensi", absencontroller.ScanAbsensiHandler)
-		api.GET("/histori", absencontroller.GetAllAbsen)
-		api.GET("/lokasi", lokasicontroller.GetAllLokasi)
-		api.GET("/uhistori", absencontroller.GetHistoryUser)
-		api.GET("/profile", profilecontroller.GetUserProfile)
-		api.POST("/lembur/start", lemburcontrollers.StartOvertimeHandler)
-		api.PUT("/lembur/end", lemburcontrollers.EndOvertimeHandler)
-		api.GET("/lembur/history", lemburcontrollers.GetHistoryLembur)
+		v1.POST("/login", authcontroller.LoginHandler)
+		v1.POST("/aktivasi", authcontroller.Aktivasi)
+		v1.GET("/logout", authcontroller.Logout)
+
+			api := v1.Group("/api")
+			api.Use(middlewares.AuthMiddleware())
+		{
+			api.POST("/absensi", absencontroller.ScanAbsensiHandler)
+			api.GET("/histori", absencontroller.GetAllAbsen)
+			api.GET("/lokasi", lokasicontroller.GetAllLokasi)
+			api.GET("/uhistori", absencontroller.GetHistoryUser)
+			api.GET("/profile", profilecontroller.GetUserProfile)
+			api.POST("/lembur/start", lemburcontrollers.StartOvertimeHandler)
+			api.PUT("/lembur/end", lemburcontrollers.EndOvertimeHandler)
+			api.GET("/lembur/history", lemburcontrollers.GetHistoryLembur)
+		}
 	}
+
+	
 
 	// 5. Jalankan Server
 	port := os.Getenv("PORT")

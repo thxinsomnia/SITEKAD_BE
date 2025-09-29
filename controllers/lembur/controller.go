@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"time"
 	"os"
+	"log"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -189,7 +190,7 @@ func EndOvertimeHandler(c *gin.Context) {
 
 	koordinatString := fmt.Sprintf("%f, %f", payload.Latitude, payload.Longitude)
 	var lembur models.Lembur
-	err := models.DB.Where("penempatan_id = ? AND jam_keluar IS NULL", currentUser.Id).First(&lembur).Error
+	err := models.DB.Where("penempatan_id = ? AND jam_keluar IS NULL", currentUser.Id).Last(&lembur).Error
 
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -201,9 +202,16 @@ func EndOvertimeHandler(c *gin.Context) {
 	}
 
 	if payload.AndroidID != lembur.Andid_masuk {
+		log.Printf("ID MISMATCH -> Payload: '[%s]' vs DB: '[%s]'", payload.AndroidID, lembur.Andid_masuk)
 		c.JSON(http.StatusForbidden, gin.H{"error": "Perangkat yang digunakan untuk check-out berbeda dengan saat check-in"})
 		return
 	}
+
+	if err := models.DB.Model(&lembur).Where("jam_keluar IS NULL").First(&lembur).Error; err != nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "Sesi lembur sudah diakhiri sebelumnya"})
+		return
+	}
+	
 
 	now := time.Now()
 	tanggalHariIni := now.Format("2006-01-02")
