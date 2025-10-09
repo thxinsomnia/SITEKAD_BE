@@ -10,6 +10,7 @@ import (
 	"SITEKAD/controllers/lokasi"
 	"SITEKAD/controllers/profile"
 	"SITEKAD/controllers/lembur"
+	"SITEKAD/controllers/penugasan"
 	"SITEKAD/models"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-contrib/cors"
@@ -46,6 +47,8 @@ func main() {
 			api.POST("/lembur/start", lemburcontrollers.StartOvertimeHandler)
 			api.PUT("/lembur/end", lemburcontrollers.EndOvertimeHandler)
 			api.GET("/lembur/history", lemburcontrollers.GetHistoryLembur)
+			api.POST("/patrol/start", penugasan.StartPatrolHandler)
+			api.POST("/patrol/scan", penugasan.ScanCheckpointHandler)
 		}
 	}
 

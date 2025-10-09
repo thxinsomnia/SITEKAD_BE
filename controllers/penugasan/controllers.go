@@ -14,7 +14,38 @@ func StartPatrolHandler(c *gin.Context) {
 	currentUser := userData.(models.Penempatan)
 
 	var activePengerjaan models.PengerjaanTugas
-	err := models.DB.Where("penempatan_id = ? AND status = ?", currentUser.Id, "berlangsung").First(&activePengerjaan).Error
+	
+	// Tentukan batas waktu, yaitu 8 jam yang lalu dari sekarang
+	batasWaktu := time.Now().Add(-8 * time.Hour)
+
+	// Cari sesi yang:
+	// 1. Milik pengguna ini
+	// 2. Statusnya masih "berlangsung"
+	// 3. DAN dimulai dalam 8 jam terakhir
+	err := models.DB.Where(
+		"penempatan_id = ? AND status = ? AND waktu_mulai > ?",
+		currentUser.Id,
+		"berlangsung",
+		batasWaktu,
+	).First(&activePengerjaan).Error
+
+	// Jika tidak ada error, berarti DITEMUKAN sesi aktif yang valid. Tolak.
+	if err == nil {
+		c.JSON(http.StatusConflict, gin.H{
+			"error":      "Anda sudah memiliki sesi patroli yang sedang berlangsung",
+			"patroli_id": activePengerjaan.Ptid,
+		})
+		return
+	}
+	
+	// Jika error BUKAN karena 'not found', berarti ada masalah server
+	if err != gorm.ErrRecordNotFound {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal memeriksa sesi patroli"})
+		return
+	}
+
+	// var activePengerjaan models.PengerjaanTugas
+	// err := models.DB.Where("penempatan_id = ? AND status = ?", currentUser.Id, "berlangsung").First(&activePengerjaan).Error
 
 	if err == nil {
 		c.JSON(http.StatusConflict, gin.H{
@@ -29,9 +60,13 @@ func StartPatrolHandler(c *gin.Context) {
 		return
 	}
 
+	now := time.Now()
+	tanggalHariIni := now.Format("2006-01-02")
+	jamSaatIni := now.Format("15:04:05")
+
 	newPengerjaan := models.PengerjaanTugas{
 		PenempatanId: currentUser.Id,
-		WaktuMulai:   time.Now(),
+		WaktuMulai:   tanggalHariIni + " " + jamSaatIni,
 		Status:       "berlangsung",
 	}
 
@@ -46,6 +81,69 @@ func StartPatrolHandler(c *gin.Context) {
 	})
 }
 
+type ScanCheckpointPayload struct {
+	PatroliID      int64  `json:"patroli_id" binding:"required"`
+	CheckpointKode string `json:"checkpoint_kode" binding:"required"`
+}
+
+func ScanCheckpointHandler(c *gin.Context) {
+	var payload ScanCheckpointPayload
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Input tidak valid: " + err.Error()})
+		return
+	}
+
+	userData, _ := c.Get("currentUser")
+	currentUser := userData.(models.Penempatan)
+
+	var patroli models.PengerjaanTugas
+	err := models.DB.Where(
+		"ptid = ? AND penempatan_id = ? AND status = ?",
+		payload.PatroliID, currentUser.Id, "berlangsung",
+	).First(&patroli).Error
+
+	if err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Sesi patroli tidak valid atau bukan milik Anda"})
+		return
+	}
+
+	var checkpoint models.Checkpoint
+	if err := models.DB.Where("kode_qr = ?", payload.CheckpointKode).First(&checkpoint).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Kode QR checkpoint tidak terdaftar"})
+		return
+	}
+
+	var existingLog models.CekTugas
+	err = models.DB.Where("ptid = ? AND cid = ?", patroli.Ptid, checkpoint.Cid).First(&existingLog).Error
+	if err == nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "Checkpoint ini sudah pernah Anda scan sebelumnya dalam sesi ini"})
+		return
+	}
+
+	now := time.Now()
+	tanggalHariIni := now.Format("2006-01-02")
+	jamSaatIni := now.Format("15:04:05")
+
+	newLog := models.CekTugas{
+		Ptid:         patroli.Ptid,
+		Cid:      checkpoint.Cid,
+		WaktuScan:         tanggalHariIni + " " + jamSaatIni,
+	}
+
+	if err := models.DB.Create(&newLog).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mencatat checkpoint"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":   "Checkpoint '" + checkpoint.NamaLokasi + "' berhasil dicatat",
+		"waktu_scan": newLog.WaktuScan,
+	})
+}
+
 func GetPenugasan(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Get Penugasan"})
 }
+
+
+
