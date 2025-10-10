@@ -141,6 +141,52 @@ func ScanCheckpointHandler(c *gin.Context) {
 	})
 }
 
+type EndPatrolPayload struct {
+	PatroliID int64 `json:"patroli_id" binding:"required"`
+}
+
+func EndPatrolHandler(c *gin.Context) {
+	var payload EndPatrolPayload
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Input patroli_id dibutuhkan"})
+		return
+	}
+
+	userData, _ := c.Get("currentUser")
+	currentUser := userData.(models.Penempatan)
+	
+	var patroli models.PengerjaanTugas
+	err := models.DB.Where(
+		"ptid = ? AND penempatan_id = ? AND status = ?",
+		payload.PatroliID, currentUser.Id, "berlangsung",
+	).First(&patroli).Error
+
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Tidak ada sesi patroli aktif yang cocok untuk diakhiri"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mencari sesi patroli"})
+		return
+	}
+
+	now := time.Now()
+	tanggalHariIni := now.Format("2006-01-02")
+	jamSaatIni := now.Format("15:04:05")
+	nowString := tanggalHariIni + " " + jamSaatIni
+	result := models.DB.Model(&patroli).Updates(models.PengerjaanTugas{
+		WaktuSelesai: &nowString,
+		Status:       "selesai",
+	})
+
+	if result.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menyelesaikan sesi patroli"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Sesi patroli berhasil diselesaikan"})
+}
+
 func GetPenugasan(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Get Penugasan"})
 }

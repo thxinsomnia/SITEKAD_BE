@@ -4,6 +4,7 @@ import (
 
 	"log"
 	"os"
+	"time"
 	"SITEKAD/middlewares"
 	"SITEKAD/controllers/absen"
 	"SITEKAD/controllers/auth"
@@ -11,9 +12,11 @@ import (
 	"SITEKAD/controllers/profile"
 	"SITEKAD/controllers/lembur"
 	"SITEKAD/controllers/penugasan"
+	"SITEKAD/controllers/scheduler"
 	"SITEKAD/models"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-contrib/cors"
+	"github.com/go-co-op/gocron"
 )
 
 
@@ -49,10 +52,15 @@ func main() {
 			api.GET("/lembur/history", lemburcontrollers.GetHistoryLembur)
 			api.POST("/patrol/start", penugasan.StartPatrolHandler)
 			api.POST("/patrol/scan", penugasan.ScanCheckpointHandler)
+			api.POST("/patrol/end", penugasan.EndPatrolHandler)
 		}
 	}
 
-	
+	loc, _ := time.LoadLocation("Asia/Jakarta")
+	s := gocron.NewScheduler(loc)
+	s.Every(1).Hour().Do(scheduler.CleanupStalePatrols)
+	s.StartAsync()
+	log.Println("Automatic Scheduler Berhasil Dijalankan")
 
 	// 5. Jalankan Server
 	port := os.Getenv("PORT")
