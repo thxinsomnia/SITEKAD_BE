@@ -1,4 +1,4 @@
-package penugasan 
+package penugasancontrollers
 
 import (
 	"github.com/gin-gonic/gin"
@@ -15,13 +15,8 @@ func StartPatrolHandler(c *gin.Context) {
 
 	var activePengerjaan models.PengerjaanTugas
 	
-	// Tentukan batas waktu, yaitu 8 jam yang lalu dari sekarang
 	batasWaktu := time.Now().Add(-8 * time.Hour)
 
-	// Cari sesi yang:
-	// 1. Milik pengguna ini
-	// 2. Statusnya masih "berlangsung"
-	// 3. DAN dimulai dalam 8 jam terakhir
 	err := models.DB.Where(
 		"penempatan_id = ? AND status = ? AND waktu_mulai > ?",
 		currentUser.Id,
@@ -29,7 +24,6 @@ func StartPatrolHandler(c *gin.Context) {
 		batasWaktu,
 	).First(&activePengerjaan).Error
 
-	// Jika tidak ada error, berarti DITEMUKAN sesi aktif yang valid. Tolak.
 	if err == nil {
 		c.JSON(http.StatusConflict, gin.H{
 			"error":      "Anda sudah memiliki sesi patroli yang sedang berlangsung",
@@ -38,14 +32,10 @@ func StartPatrolHandler(c *gin.Context) {
 		return
 	}
 	
-	// Jika error BUKAN karena 'not found', berarti ada masalah server
 	if err != gorm.ErrRecordNotFound {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal memeriksa sesi patroli"})
 		return
 	}
-
-	// var activePengerjaan models.PengerjaanTugas
-	// err := models.DB.Where("penempatan_id = ? AND status = ?", currentUser.Id, "berlangsung").First(&activePengerjaan).Error
 
 	if err == nil {
 		c.JSON(http.StatusConflict, gin.H{
