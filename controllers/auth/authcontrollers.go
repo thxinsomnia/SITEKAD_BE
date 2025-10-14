@@ -28,15 +28,13 @@ func LoginHandler(c *gin.Context) {
     }
 
     var user models.Penempatan
-    // 2. Gunakan .Preload("Pkwt") untuk mengambil data dari tabel pkwt juga
     err := models.DB.Preload("Pkwt").Where("username = ?", payload.Username).First(&user).Error
     if err != nil {
-        // Jika error (termasuk gorm.ErrRecordNotFound), pesannya sama agar lebih aman
         c.JSON(http.StatusUnauthorized, gin.H{"Message": "Username atau Password Tidak Sesuai"})
         return
     }
 
-    // 3. Verifikasi password (tidak berubah)
+ 
     if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(payload.Password)); err != nil {
         c.JSON(http.StatusUnauthorized, gin.H{"Message": "Username atau Password Tidak Sesuai"})
         return
@@ -55,8 +53,6 @@ func LoginHandler(c *gin.Context) {
         return
     }
     
-    // 5. Kirim token sebagai response JSON
-    // (Menghapus SetCookie karena untuk API, token biasanya dikelola oleh client/frontend)
     c.JSON(http.StatusOK, gin.H{"token": tokenString})
 }
 
@@ -78,12 +74,12 @@ func Aktivasi(c *gin.Context) {
 	var pkwt models.Pkwt
 	err := models.DB.Where("nitad = ?", payload.Nitad).First(&pkwt).Error
 	if err != nil {
-		// Err Log
+
 		if err == gorm.ErrRecordNotFound {
 			c.JSON(http.StatusNotFound, gin.H{"Message": "Nitad tidak terdaftar"})
 			return
 		}
-		// Handle error
+	
 		c.JSON(http.StatusInternalServerError, gin.H{"Message": "Server error"})
 		return
 	}
@@ -92,11 +88,11 @@ func Aktivasi(c *gin.Context) {
 	err = models.DB.Where("username = ?", payload.Username).First(&existingUser).Error
 
 	if err == nil {
-		// Jika err == nil, artinya GORM BERHASIL menemukan user. Username sudah dipakai.
+		
 		c.JSON(http.StatusConflict, gin.H{"Message": "Username sudah digunakan, silakan pilih yang lain"})
 		return
 	} else if err != gorm.ErrRecordNotFound {
-		// Handle jika ada error database selain "tidak ditemukan"
+		
 		c.JSON(http.StatusInternalServerError, gin.H{"Message": "Gagal memvalidasi username"})
 		return
 	}

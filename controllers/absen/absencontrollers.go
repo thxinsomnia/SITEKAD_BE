@@ -10,7 +10,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// Histori Absensi
+
 func GetAllAbsen(c *gin.Context) {
 	var absensi []models.Absensi
 
@@ -111,21 +111,17 @@ func ScanAbsensiHandler(c *gin.Context) {
 		}
 
 		batasDurasi := 12 * time.Hour
-        durasiSesi := time.Since(absensi.CreatedAt) // Menghitung durasi
-
+        durasiSesi := time.Since(absensi.CreatedAt) 
         if durasiSesi > batasDurasi {
-            // Jawaban: Ya, sudah lebih dari 12 jam.
             c.JSON(http.StatusForbidden, gin.H{"error": "Sesi kerja Anda sudah lebih dari 12 jam. Harap hubungi admin."})
             return
         }
 
 		var tanggalKeluar string
 		hour := now.Hour()
-		if hour >= 0 && hour < 6 {
-			// Checkout dini hari -> masuk ke shift malam sebelumnya
+		if hour >= 0 && hour < 6 {		
 			tanggalKeluar = now.AddDate(0, 0, -1).Format("2006-01-02")
 		} else {
-			// Selain itu, checkout pakai tanggal hari ini
 			tanggalKeluar = now.Format("2006-01-02")
 		}
 		

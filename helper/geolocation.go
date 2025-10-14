@@ -2,9 +2,7 @@ package helper
 
 import "math"
 
-const earthRadiusMeters = 6371000 // Radius bumi dalam meter
-
-// Haversine menghitung jarak antara dua titik lat/lon dalam meter
+const earthRadiusMeters = 6371000 
 func Geolocation(lat1, lon1, lat2, lon2 float64) float64 {
 	latRad1 := lat1 * math.Pi / 180
 	lonRad1 := lon1 * math.Pi / 180

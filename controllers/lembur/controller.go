@@ -28,8 +28,6 @@ func handleFileUpload(c *gin.Context) (string, error) {
 		return "", fmt.Errorf("gagal membuka file")
 	}
 	defer file.Close()
-
-	// Anda bisa menambahkan validasi tipe dan ukuran file di sini
 	ext := filepath.Ext(fileHeader.Filename)
 	allowedExts := map[string]bool{".jpg": true, ".jpeg": true, ".png": true, ".pdf": true}
 	if !allowedExts[ext] {
@@ -42,14 +40,12 @@ func handleFileUpload(c *gin.Context) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("gagal membaca file untuk validasi")
 	}
-
-	// PENTING: Kembalikan pointer file ke awal agar bisa disimpan nanti
 	_, err = file.Seek(0, 0)
 	if err != nil {
 		return "", fmt.Errorf("gagal mereset file reader")
 	}
 
-	// Deteksi tipe konten
+
 	mimeType := http.DetectContentType(buffer)
 	allowedMimes := map[string]bool{
 		"image/jpeg":      true,
@@ -66,11 +62,9 @@ func handleFileUpload(c *gin.Context) (string, error) {
 	hasher := sha256.New()
 	hasher.Write([]byte(stringToHash))
 	hashedFilename := hex.EncodeToString(hasher.Sum(nil)) + extension
-
-	// Ambil path dari environment variable agar lebih fleksibel
 	uploadPath := os.Getenv("UPLOAD_PATH")
 	if uploadPath == "" {
-		uploadPath = "uploads/spl" // Default path jika tidak di-set
+		uploadPath = "uploads/spl"
 	}
 
 	destinationPath := filepath.Join(uploadPath, hashedFilename)
@@ -81,7 +75,6 @@ func handleFileUpload(c *gin.Context) (string, error) {
 	return hashedFilename, nil
 }
 
-// Handler utama yang sekarang lebih bersih
 func StartOvertimeHandler(c *gin.Context) {
 	userData, exists := c.Get("currentUser")
 	if !exists {
@@ -89,8 +82,6 @@ func StartOvertimeHandler(c *gin.Context) {
 		return
 	}
 	currentUser := userData.(models.Penempatan)
-
-	// 2. Cek sesi lembur yang aktif (tidak berubah)
 	var existingLembur models.Lembur
 	twelveHoursAgo := time.Now().Add(-12 * time.Hour)
 	err := models.DB.Where("penempatan_id = ? AND jam_keluar IS NULL AND created_at > ?", currentUser.Id, twelveHoursAgo).First(&existingLembur).Error
@@ -103,14 +94,12 @@ func StartOvertimeHandler(c *gin.Context) {
 		return
 	}
 
-	// 3. Panggil fungsi bantuan untuk menangani file
 	hashedFilename, errFile := handleFileUpload(c)
 	if errFile != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": errFile.Error()})
 		return
 	}
 
-	// 4. Ambil data form (tidak berubah)
 	latitude := c.PostForm("latitude")
 	longitude := c.PostForm("longitude")
 	androidID := c.PostForm("android_id")
@@ -118,7 +107,6 @@ func StartOvertimeHandler(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Input Tidak Valid!"})
 		return
 	}
-    // (Tambahkan validasi input kosong di sini jika perlu)
 
 	if latitude == "" {
         c.JSON(http.StatusBadRequest, gin.H{"error": "Mohon Aktifkan Izin Lokasi!"})
@@ -133,8 +121,6 @@ func StartOvertimeHandler(c *gin.Context) {
         return
     }
 	koordinat := fmt.Sprintf("%s, %s", latitude, longitude)
-
-	// 5. Input ke DB
 	now := time.Now()
 	tanggalHariIni := now.Format("2006-01-02")
 	jamSaatIni := now.Format("15:04:05")
@@ -154,12 +140,12 @@ func StartOvertimeHandler(c *gin.Context) {
 	}
 
 	if errDb := models.DB.Create(&newLembur).Error; errDb != nil {
-		// Jika gagal menyimpan ke DB, hapus file yang sudah diunggah
+		
 		uploadPath := os.Getenv("UPLOAD_PATH")
 		if uploadPath == "" {
 			uploadPath = "./uploads"
 		}
-		os.Remove(filepath.Join(uploadPath, hashedFilename)) // Hapus file "sampah"
+		os.Remove(filepath.Join(uploadPath, hashedFilename)) 
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menyimpan data lembur"})
 		return
 	}

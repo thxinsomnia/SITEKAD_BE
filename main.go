@@ -8,6 +8,7 @@ import (
 	"SITEKAD/middlewares"
 	"SITEKAD/controllers/absen"
 	"SITEKAD/controllers/auth"
+	"SITEKAD/controllers/cuti"
 	"SITEKAD/controllers/lokasi"
 	"SITEKAD/controllers/profile"
 	"SITEKAD/controllers/lembur"
@@ -50,9 +51,10 @@ func main() {
 			api.POST("/lembur/start", lemburcontrollers.StartOvertimeHandler)
 			api.PUT("/lembur/end", lemburcontrollers.EndOvertimeHandler)
 			api.GET("/lembur/history", lemburcontrollers.GetHistoryLembur)
-			api.POST("/patrol/start", penugasan.StartPatrolHandler)
-			api.POST("/patrol/scan", penugasan.ScanCheckpointHandler)
-			api.POST("/patrol/end", penugasan.EndPatrolHandler)
+			api.POST("/patrol/start", penugasancontrollers.StartPatrolHandler)
+			api.POST("/patrol/scan", penugasancontrollers.ScanCheckpointHandler)
+			api.POST("/patrol/end", penugasancontrollers.EndPatrolHandler)
+			api.POST("/cuti", cuticontrollers.CreateCutiHandler)
 		}
 	}
 
@@ -61,13 +63,11 @@ func main() {
 	s.Every(1).Hour().Do(scheduler.CleanupStalePatrols)
 	s.StartAsync()
 	log.Println("Automatic Scheduler Berhasil Dijalankan")
-
-	// 5. Jalankan Server
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
 	}
-	log.Printf("Server is running on port %s\n", port)
+	log.Printf("Server Berhasil Berjalan Pada Port %s\n", port)
 
 	router.Run(":" + port)
 }

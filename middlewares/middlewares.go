@@ -59,14 +59,11 @@ func JWTVerif() gin.HandlerFunc {
 
 func AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// 1. Ambil token dari Authorization header
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"Peringatan": "Silahkan Login Terlebih Dahulu!"})
 			return
 		}
-
-		// Header format: "Bearer {token}"
 		parts := strings.Split(authHeader, " ")
 		if len(parts) != 2 || parts[0] != "Bearer" {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"Peringatan": "Silahkan Login Terlebih Dahulu!"})
@@ -75,10 +72,7 @@ func AuthMiddleware() gin.HandlerFunc {
 
 		tokenString := parts[1]
 		secretKey := os.Getenv("JWT_KEY")
-
-		// 2. Parse dan validasi token
 		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-			// Pastikan algoritma sesuai
 			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 				return nil, jwt.NewValidationError("Metode Signing Tidak Valid", jwt.ValidationErrorSignatureInvalid)
 			}
@@ -90,17 +84,13 @@ func AuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		// 3. Ekstrak ID pengguna dari claims
 		claims, ok := token.Claims.(jwt.MapClaims)
 		if !ok {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"Error": "Gagal Memproses Token!"})
 			return
 		}
 
-		// Ambil 'id' yang kita simpan saat login
 		penempatanID := int64(claims["id"].(float64))
-
-		// 4. Ambil data lengkap pengguna DENGAN PRELOAD
 		var penempatan models.Penempatan
 		err = models.DB.
 			Preload("Lokasi").
@@ -114,10 +104,7 @@ func AuthMiddleware() gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"Error": "Pengguna Tidak Ditemukan!"})
 			return
 		}
-		// 5. Simpan objek PENGGUNA YANG LENGKAP ke dalam context Gin
 		c.Set("currentUser", penempatan)
-
-		// Lanjutkan ke handler berikutnya
 		c.Next()
 	}
 }

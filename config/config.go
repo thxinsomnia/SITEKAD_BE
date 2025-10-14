@@ -20,8 +20,6 @@ func init() {
 		log.Fatal("JWT_KEY must be set in .env file")
 	}
 
-	// 2. ISI NILAI di dalam fungsi (Mengisi botol yang sudah ada)
-	// Kita tidak menggunakan 'var' atau ':=' lagi di sini.
 	JWT_KEY = []byte(key)
 }
 type JWTClaims struct {

@@ -7,14 +7,10 @@ import (
 	"time"
 )
 
-// CleanupStalePatrols adalah fungsi yang akan dijalankan oleh cron.
+
 func CleanupStalePatrols() {
 	log.Println("Memperbarui Data Tugas Patroli...")
-
-	// Tentukan batas waktu (sesi yang lebih lama dari 8 jam)
 	batasWaktu := time.Now().Add(-8 * time.Hour)
-
-	// Cari semua sesi patroli yang statusnya "berlangsung" dan sudah kedaluwarsa
 	var schedulePengerjaan []models.PengerjaanTugas
 	err := models.DB.Where(
 		"status = ? AND waktu_mulai < ?",
@@ -31,8 +27,6 @@ func CleanupStalePatrols() {
 		log.Println("Tidak ada sesi patroli usang yang ditemukan.")
 		return
 	}
-
-	// Perbarui status sesi-sesi usang tersebut menjadi "kedaluwarsa"
 	for _, pengerjaan := range schedulePengerjaan {
 		log.Printf("Memperbarui sesi usang ID: %d", pengerjaan.Ptid)
 		models.DB.Model(&pengerjaan).Update("status", "kedaluwarsa")
