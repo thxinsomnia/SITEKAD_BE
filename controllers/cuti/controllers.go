@@ -9,17 +9,27 @@ import (
 	"path/filepath"
 	"time"
 	"os"
+	"log"
 	"github.com/gin-gonic/gin"
 )
 
 func CutiFileUpload(c *gin.Context) (string, error) {
-	fileHeader, err := c.FormFile("gambar")
+	fileHeader, err := c.FormFile("suket")
 	if err != nil {
+		log.Printf("FormFile error: %v", err)
 		if err == http.ErrMissingFile {
 			return "", nil 
 		}
 		return "", fmt.Errorf("gagal membaca form file: %w", err)
 	}
+	log.Printf("File ditemukan: %s (%d bytes)", fileHeader.Filename, fileHeader.Size)
+
+	// if err != nil {
+	// 	if err == http.ErrMissingFile {
+	// 		return "", nil 
+	// 	}
+	// 	return "", fmt.Errorf("gagal membaca form file: %w", err)
+	// }
 	file, err := fileHeader.Open()
 	if err != nil {
 		return "", fmt.Errorf("gagal membuka file")
@@ -63,7 +73,7 @@ func CutiFileUpload(c *gin.Context) (string, error) {
 
 	uploadPath := os.Getenv("CUTI_PATH")
 	if uploadPath == "" {
-		uploadPath = "uploads/cuti" 
+		uploadPath = "uploads/spl" 
 	}
 
 	destinationPath := filepath.Join(uploadPath, hashedFilename)
@@ -85,6 +95,7 @@ func CreateCutiHandler(c *gin.Context) {
 
 	hashedFilename, errFile := CutiFileUpload(c)
 	if errFile != nil {
+		log.Printf("Error during file upload: %v", errFile)
 		c.JSON(http.StatusBadRequest, gin.H{"error": errFile.Error()})
 		return
 	}
@@ -106,7 +117,7 @@ func CreateCutiHandler(c *gin.Context) {
 		return
 	}
 
-	layout := "02-01-2006"
+	layout := "2006-01-02"
 	tglMulai, _ := time.Parse(layout, TanggalAwal)
 	tglSelesai, _ := time.Parse(layout, TanggalAkhir)
 	if tglSelesai.Before(tglMulai) {
@@ -150,6 +161,10 @@ func CreateCutiHandler(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menyimpan pengajuan cuti"})
 		return
 	}
+	log.Printf("Hasil upload: filename=%s, err=%v", hashedFilename, errFile)
 
-	c.JSON(http.StatusCreated, gin.H{"message": "Pengajuan cuti berhasil dibuat"})
+	c.JSON(http.StatusCreated, gin.H{
+		"message":      "Pengajuan cuti berhasil diajukan!",
+		"file_disimpan": hashedFilename,
+	})
 }

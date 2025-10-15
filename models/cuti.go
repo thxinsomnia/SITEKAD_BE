@@ -9,7 +9,7 @@ type Cuti struct {
 	Cabang_id     int64   `gorm:"type int" json:"cabang_id"`
 	Lokasi_id     int64   `gorm:"type int" json:"lokasi_id"`
 	Jabatan_id    int64   `gorm:"type int" json:"jabatan_id"`
-	Suket         string	`gorm:"type varchar(200)" json:"suket"`
+	Suket         string	`gorm:"type varchar(255)" json:"suket"`
 	TglAwal      string	`gorm:"type date" json:"tgl_awal"`
 	TglAkhir     string	`gorm:"type date" json:"tgl_akhir"`
 	Status	string	`gorm:"type varchar(50)" json:"status"`
