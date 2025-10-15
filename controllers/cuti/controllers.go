@@ -106,7 +106,7 @@ func CreateCutiHandler(c *gin.Context) {
 		return
 	}
 
-	layout := "2006-01-02"
+	layout := "02-01-2006"
 	tglMulai, _ := time.Parse(layout, TanggalAwal)
 	tglSelesai, _ := time.Parse(layout, TanggalAkhir)
 	if tglSelesai.Before(tglMulai) {
@@ -121,18 +121,21 @@ func CreateCutiHandler(c *gin.Context) {
 		return
 	}
 
-	now := time.Now()
-	tanggalHariIni := now.Format("2006-01-02")
-	jamSaatIni := now.Format("15:04:05")
+	// now := time.Now()
+	// tanggalHariIni := now.Format("2006-01-02")
+	// jamSaatIni := now.Format("15:04:05")
 
 	newCuti := models.Cuti{
-		Nitad:            	currentUser.Pkwt.Nitad,
-		TanggalPengajuan: 	tanggalHariIni + " " + jamSaatIni,
-		TanggalAwal:     	TanggalAwal,
-		TanggalAkhir:   	TanggalAkhir,
-		Alasan:          	alasan,
-		Keterangan:      	keterangan,
-		Gambar:          	hashedFilename, 
+		Penempatan_id: currentUser.Id,
+		Tad_id:        currentUser.Pkwt.TadId,
+		Cabang_id:     currentUser.Cabang_id,
+		Lokasi_id:     currentUser.Lokasi_kerja_id,
+		Jabatan_id:    currentUser.Jabatan_id,
+		TglAwal:      TanggalAwal,
+		TglAkhir:     TanggalAkhir,
+		Alasan:        alasan,
+		Keterangan:    keterangan,
+		Suket:         hashedFilename,
 	}
 
 	if err := models.DB.Create(&newCuti).Error; err != nil {
