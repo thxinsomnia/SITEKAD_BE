@@ -38,11 +38,14 @@ func ScanAbsensiHandler(c *gin.Context) {
 		return
 	}
 
-	var qrCode models.Lokasi
-	err := models.DB.Where("kodeqr = ?", payload.KodeQr).First(&qrCode).Error
+	userData, _ := c.Get("currentUser")
+	currentUser := userData.(models.Penempatan) 
+
+	var qrCode models.LokasiPresensi
+	err := models.DB.Where("kodeqr = ? AND penempatan_id = ?", payload.KodeQr, currentUser.Id).First(&qrCode).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			c.JSON(http.StatusForbidden, gin.H{"error": "QR Code tidak valid atau tidak aktif"})
+			c.JSON(http.StatusForbidden, gin.H{"error": "QR Code Tidak Valid, atau Anda Tidak Terdaftar di Lokasi Ini!"})
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal memvalidasi QR Code"})
@@ -61,8 +64,7 @@ func ScanAbsensiHandler(c *gin.Context) {
 		return
 	}
 
-	userData, _ := c.Get("currentUser")
-	currentUser := userData.(models.Penempatan) 
+
 
 	now := time.Now()
 	tanggalHariIni := now.Format("2006-01-02")
