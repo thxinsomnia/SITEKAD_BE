@@ -44,6 +44,7 @@ func main() {
 			api.Use(middlewares.AuthMiddleware())
 		{
 			api.POST("/absensi", absencontroller.ScanAbsensiHandler)
+			api.GET("/pcheck", absencontroller.PrediksiCheckout)
 			api.GET("/histori", absencontroller.GetAllAbsen)
 			api.GET("/lokasi", lokasicontroller.GetAllLokasi)
 			api.GET("/uhistori", absencontroller.GetHistoryUser)

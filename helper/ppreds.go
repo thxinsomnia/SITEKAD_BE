@@ -1,15 +1,13 @@
 package helper
 
 import (
-	"bytes"
 	"fmt"
 	"strconv"
 	"strings"
 
 	"SITEKAD/models"
 
-	"github.com/sjwhitworth/golearn/base"
-	"github.com/sjwhitworth/golearn/linear_models"
+	"gonum.org/v1/gonum/stat"
 )
 
 func timeToMinutes(timeStr string) float64 {
@@ -29,77 +27,50 @@ func minutesToTime(minutes float64) string {
 }
 
 func PredictCheckoutTime(history [][2]string, newCheckInTime string) (string, error) {
-	if len(history) == 0 {
-		return "", fmt.Errorf("no training data available")
+	if len(history) < 2 {
+		return "", fmt.Errorf("minimal 2 data historis diperlukan untuk prediksi")
 	}
 
-	// Build CSV string from history data
-	var csvBuffer bytes.Buffer
-	csvBuffer.WriteString("jam_keluar,jam_masuk\n")
+	// Prepare X (check-in times) and Y (check-out times)
+	x := make([]float64, len(history))
+	y := make([]float64, len(history))
 
-	for _, record := range history {
-		checkInMinutes := timeToMinutes(record[0])
-		checkOutMinutes := timeToMinutes(record[1])
-		csvBuffer.WriteString(fmt.Sprintf("%.2f,%.2f\n", checkOutMinutes, checkInMinutes))
+	for i, record := range history {
+		x[i] = timeToMinutes(record[0]) // jam_masuk
+		y[i] = timeToMinutes(record[1]) // jam_keluar
 	}
 
-	// Parse the CSV data
-	instances, err := base.ParseCSVToInstances(csvBuffer.String(), true)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse training data: %w", err)
-	}
+	// Calculate linear regression: y = alpha + beta*x
+	alpha, beta := stat.LinearRegression(x, y, nil, false)
 
-	// Train the model
-	model := linear_models.NewLinearRegression()
-	if err := model.Fit(instances); err != nil {
-		return "", fmt.Errorf("failed to train model: %w", err)
-	}
-
-	// Prepare prediction data
+	// Predict checkout time for new check-in
 	newCheckInMinutes := timeToMinutes(newCheckInTime)
-	predCSV := fmt.Sprintf("jam_keluar,jam_masuk\n0.0,%.2f\n", newCheckInMinutes)
+	predictedMinutes := alpha + beta*newCheckInMinutes
 
-	predInstances, err := base.ParseCSVToInstances(predCSV, true)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse prediction data: %w", err)
-	}
-
-	// Predict
-	predictions, err := model.Predict(predInstances)
-	if err != nil {
-		return "", fmt.Errorf("prediction failed: %w", err)
-	}
-
-	// Extract prediction from the first row's class attribute
-	classAttrs := predictions.AllClassAttributes()
-	if len(classAttrs) == 0 {
-		return "", fmt.Errorf("no class attribute in predictions")
-	}
-
-	classSpec := base.ResolveAttributes(predictions, classAttrs)[0]
-	predictedBytes := predictions.Get(classSpec, 0)
-	predictedMinutes := base.UnpackBytesToFloat(predictedBytes)
-	predictedTime := minutesToTime(predictedMinutes)
-
-	return predictedTime, nil
+	return minutesToTime(predictedMinutes), nil
 }
 
 func GetTrainingDataForUser(userID int64) ([][2]string, error) {
-	var recentAbsensi []models.Absensi
+	var recentAbsensi []struct {
+		JamMasuk  string
+		JamKeluar *string
+	}
 
-	err := models.DB.Where(
-		"penempatan_id = ? AND jam_keluar IS NOT NULL",
-		userID,
-	).Order("id desc").Limit(10).Find(&recentAbsensi).Error
+	err := models.DB.Table("absensi").
+		Select("jam_masuk, jam_keluar").
+		Where("penempatan_id = ? AND jam_keluar IS NOT NULL", userID).
+		Order("id DESC").
+		Limit(10).
+		Scan(&recentAbsensi).Error
 
 	if err != nil {
 		return nil, err
 	}
 
-	var historyData [][2]string
+	historyData := make([][2]string, 0, len(recentAbsensi))
 	for _, absen := range recentAbsensi {
-		if absen.Jam_keluar != nil {
-			historyData = append(historyData, [2]string{absen.Jam_masuk, *absen.Jam_keluar})
+		if absen.JamKeluar != nil {
+			historyData = append(historyData, [2]string{absen.JamMasuk, *absen.JamKeluar})
 		}
 	}
 
