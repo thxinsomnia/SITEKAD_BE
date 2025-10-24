@@ -31,19 +31,15 @@ func PredictCheckoutTime(history [][2]string, newCheckInTime string) (string, er
 		return "", fmt.Errorf("minimal 2 data historis diperlukan untuk prediksi")
 	}
 
-	// Prepare X (check-in times) and Y (check-out times)
 	x := make([]float64, len(history))
 	y := make([]float64, len(history))
 
 	for i, record := range history {
-		x[i] = timeToMinutes(record[0]) // jam_masuk
-		y[i] = timeToMinutes(record[1]) // jam_keluar
+		x[i] = timeToMinutes(record[0]) 
+		y[i] = timeToMinutes(record[1]) 
 	}
 
-	// Calculate linear regression: y = alpha + beta*x
 	alpha, beta := stat.LinearRegression(x, y, nil, false)
-
-	// Predict checkout time for new check-in
 	newCheckInMinutes := timeToMinutes(newCheckInTime)
 	predictedMinutes := alpha + beta*newCheckInMinutes
 

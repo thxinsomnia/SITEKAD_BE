@@ -151,7 +151,7 @@ func GetHistoryUser(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"history": history})
 }
 
-// New handler for checkout prediction
+
 func PrediksiCheckout(c *gin.Context) {
 	userData, exists := c.Get("currentUser")
 	if !exists {
@@ -159,8 +159,6 @@ func PrediksiCheckout(c *gin.Context) {
 		return
 	}
 	currentUser := userData.(models.Penempatan)
-
-	// Get today's attendance record
 	var todayAbsen models.Absensi
 	now := time.Now()
 	tanggalHariIni := now.Format("2006-01-02")
@@ -180,8 +178,6 @@ func PrediksiCheckout(c *gin.Context) {
 		})
 		return
 	}
-
-	// Check if already checked out
 	if todayAbsen.Jam_keluar != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error":      "Sudah melakukan check-out hari ini",
@@ -189,8 +185,6 @@ func PrediksiCheckout(c *gin.Context) {
 		})
 		return
 	}
-
-	// Get historical data for prediction
 	history, err := helper.GetTrainingDataForUser(currentUser.Id)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -198,8 +192,6 @@ func PrediksiCheckout(c *gin.Context) {
 		})
 		return
 	}
-
-	// Check if enough data for prediction
 	if len(history) < 3 {
 		c.JSON(http.StatusOK, gin.H{
 			"message":               "Data historis tidak cukup untuk prediksi (minimal 3 data diperlukan)",
@@ -209,8 +201,6 @@ func PrediksiCheckout(c *gin.Context) {
 		})
 		return
 	}
-
-	// Make prediction
 	predictedCheckout, err := helper.PredictCheckoutTime(history, todayAbsen.Jam_masuk)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -219,7 +209,7 @@ func PrediksiCheckout(c *gin.Context) {
 		return
 	}
 
-	// Return prediction
+
 	c.JSON(http.StatusOK, gin.H{
 		"check_in":              todayAbsen.Jam_masuk,
 		"Prediksi Checkout":    predictedCheckout,
