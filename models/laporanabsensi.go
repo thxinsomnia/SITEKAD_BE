@@ -14,3 +14,13 @@ type LaporanAbsensi struct {
     PersentaseKehadiran   float64 `json:"persentase_kehadiran"` 
 }
 
+type LaporanAbsensiHarian struct {
+    Tanggal     string  `json:"date"`
+    NamaHari    string  `json:"day_name"`
+    JamMasuk    string  `json:"check_in"`
+    JamKeluar   *string `json:"check_out"`
+    JamKerja    float64 `json:"work_hours"`
+    Status      string  `json:"status"` 
+    IsLembur   bool    `json:"is_overtime"`
+    JamLembur float64 `json:"overtime_hours"`
+}
