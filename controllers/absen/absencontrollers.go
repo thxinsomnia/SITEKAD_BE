@@ -104,12 +104,12 @@ func ScanAbsensiHandler(c *gin.Context) {
 			return
 		}
 
-		batasDurasi := 12 * time.Hour
-		durasiSesi := time.Since(absensi.CreatedAt)
-		if durasiSesi > batasDurasi {
-			c.JSON(http.StatusForbidden, gin.H{"error": "Sesi kerja Anda sudah lebih dari 12 jam. Harap hubungi admin."})
-			return
-		}
+		// batasDurasi := 12 * time.Hour
+		// durasiSesi := time.Since(absensi.CreatedAt)
+		// if durasiSesi > batasDurasi {
+		// 	c.JSON(http.StatusForbidden, gin.H{"error": "Sesi kerja Anda sudah lebih dari 12 jam. Harap hubungi admin."})
+		// 	return
+		// }
 
 		var tanggalKeluar string
 		hour := now.Hour()
