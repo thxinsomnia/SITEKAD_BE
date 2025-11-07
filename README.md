@@ -3,6 +3,7 @@ SITEKAD atau Sistem Informasi Tenaga Ahli Daya adalah backend service berbasis G
 Aplikasi ini difokuskan untuk absensi karyawan, khususnya dalam meningkatkan akurasi, keamanan, serta efisiensi pencatatan aktivitas karyawan maupun petugas operasional.
 
 🎯 Fitur Utama
+
 ✅ 1. Absensi Berbasis QR Code
 
 Pengguna melakukan absensi dengan memindai QR Code yang telah ditentukan lokasi/areanya.
