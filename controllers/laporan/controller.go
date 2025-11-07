@@ -1,4 +1,4 @@
-package laporan
+package laporancontrollers
 
 import (
 	"SITEKAD/models"

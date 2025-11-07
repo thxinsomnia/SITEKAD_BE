@@ -14,6 +14,7 @@ import (
 	"SITEKAD/controllers/lembur"
 	"SITEKAD/controllers/penugasan"
 	"SITEKAD/controllers/scheduler"
+	"SITEKAD/controllers/laporan"
 	"SITEKAD/models"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-contrib/cors"
@@ -56,6 +57,8 @@ func main() {
 			api.POST("/patrol/scan", penugasancontrollers.ScanCheckpointHandler)
 			api.POST("/patrol/end", penugasancontrollers.EndPatrolHandler)
 			api.POST("/cuti", cuticontrollers.CreateCutiHandler)
+			api.GET("/kehadiran/rekap", laporancontrollers.GetLaporan)
+			api.GET("/kehadiran/harian", laporancontrollers.LaporanAbsensiHarian)
 		}
 	}
 
