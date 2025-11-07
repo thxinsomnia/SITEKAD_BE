@@ -151,7 +151,7 @@ func GetHistoryUser(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"history": history})
 }
 
-// New handler for checkout prediction
+		
 func PrediksiCheckout(c *gin.Context) {
 	userData, exists := c.Get("currentUser")
 	if !exists {
