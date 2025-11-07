@@ -43,3 +43,76 @@ func GetLaporan(c *gin.Context) {
     })
 }
 
+func HitungKehadiran(attendances []models.Absensi, bulan time.Time) models.LaporanAbsensi {
+    summary := models.LaporanAbsensi{
+        Bulan: bulan.Format("January 2006"),
+    }
+
+    // Define standard work hours
+    const standardWorkStart = 8 * 60  // 08:00 in minutes
+    const standardWorkEnd = 17 * 60   // 17:00 in minutes
+    const standardJamKerja = 8.0
+
+    var totalWorkMinutes float64
+    var completeDays int
+
+    for _, absen := range attendances {
+        summary.TotalHadir++
+
+        // Check if late (after 08:00)
+        checkInTime, _ := time.Parse("15:04:05", absen.Jam_masuk)
+        checkInMinutes := checkInTime.Hour()*60 + checkInTime.Minute()
+        
+        if checkInMinutes > standardWorkStart {
+            summary.HariTelat++
+        }
+
+        // Calculate work hours if checked out
+        if absen.Jam_keluar != nil {
+            completeDays++
+            
+            checkOutTime, _ := time.Parse("15:04:05", *absen.Jam_keluar)
+            checkOutMinutes := checkOutTime.Hour()*60 + checkOutTime.Minute()
+
+            // Calculate work duration in minutes
+            workMinutes := float64(checkOutMinutes - checkInMinutes)
+            
+            // Handle overnight work (if checkout is before checkin)
+            if workMinutes < 0 {
+                workMinutes += 24 * 60
+            }
+
+            totalWorkMinutes += workMinutes
+
+            // Check early checkout (before 17:00)
+            if checkOutMinutes < standardWorkEnd {
+                summary.CheckoutLebihAwal++
+            }
+
+            // Calculate overtime (work hours > 8)
+            JamKerja := workMinutes / 60
+            if JamKerja > standardJamKerja {
+                summary.WaktuLembur += (JamKerja - standardJamKerja)
+            }
+        }
+    }
+
+    // Calculate totals
+    summary.TotalJamKerja = totalWorkMinutes / 60
+    
+    if completeDays > 0 {
+        summary.RataRataJamKerja = summary.TotalJamKerja / float64(completeDays)
+    }
+
+    // Calculate total work days in bulan (excluding weekends)
+    summary.TotalHariKerja = hitungHariKerjaPerbulan(bulan)
+    summary.TotalAbsen = summary.TotalHariKerja - summary.TotalHadir
+    
+    // Calculate attendance rate
+    if summary.TotalHariKerja > 0 {
+        summary.PersentaseKehadiran = (float64(summary.TotalHadir) / float64(summary.TotalHariKerja)) * 100
+    }
+
+    return summary
+}
+
