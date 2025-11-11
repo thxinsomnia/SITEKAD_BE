@@ -59,6 +59,9 @@ func main() {
 			api.POST("/cuti", cuticontrollers.CreateCutiHandler)
 			api.GET("/kehadiran/rekap", laporancontrollers.GetLaporan)
 			api.GET("/kehadiran/harian", laporancontrollers.LaporanAbsensiHarian)
+			api.GET("/kehadiran/download/pdf", laporancontrollers.EksporRekapPDF)
+			api.GET("/kehadiran/download/excel", laporancontrollers.EksporRekapExcel)
+			api.GET("/kehadiran/harian/download/excel", laporancontrollers.EksporHarianExcel)
 		}
 	}
 
