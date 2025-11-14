@@ -563,3 +563,128 @@ func EksporHarianExcel(c *gin.Context) {
         return
     }
 }
+
+
+func GetLaporanCustomTanggal(c *gin.Context) {
+    userData, exists := c.Get("currentUser")
+    if !exists {
+        c.JSON(http.StatusUnauthorized, gin.H{"error": "Sesi pengguna tidak valid"})
+        return
+    }
+    currentUser := userData.(models.Penempatan)
+    tanggalAwal := c.Query("tanggal_awal") 
+    tanggalAkhir := c.Query("tanggal_akhir")     
+    if tanggalAwal == "" || tanggalAkhir == "" {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Harap Masukkan Tanggal Awal dan Tanggal Akhir Rekap Absensi!"})
+        return
+    }
+
+    start, err := time.Parse("2006-01-02", tanggalAwal)
+    if err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Format tanggal_awal tidak valid! (gunakan YYYY-MM-DD Contoh 2025-10-21)"})
+        return
+    }
+    end, err := time.Parse("2006-01-02", tanggalAkhir)
+    if err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Format tanggal_akhir tidak valid! (gunakan YYYY-MM-DD Contoh 2025-12-21)"})
+        return
+    }
+
+
+    if end.Before(start) {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Tanggal Akhir harus setelah Tanggal Awal!"})
+        return
+    }
+
+   
+    var attendances []models.Absensi
+    err = models.DB.Where("penempatan_id = ? AND tgl_absen BETWEEN ? AND ?",
+        currentUser.Id, tanggalAwal, tanggalAkhir).
+        Order("tgl_absen ASC").
+        Find(&attendances).Error
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data absensi"})
+        return
+    }
+
+    summary := HitungKehadiranCustomTanggal(attendances, start, end)
+    c.JSON(http.StatusOK, gin.H{
+        "summary": summary,
+        "date_range": gin.H{
+            "start": tanggalAwal,
+            "end":   tanggalAkhir,
+            "days":  int(end.Sub(start).Hours()/24) + 1,
+        },
+    })
+}
+
+
+func HitungKehadiranCustomTanggal(attendances []models.Absensi, tanggalAwal, tanggalAkhir time.Time) models.LaporanAbsensi {
+    summary := models.LaporanAbsensi{
+        Bulan: fmt.Sprintf("%s - %s", 
+            tanggalAwal.Format("02 Jan 2006"), 
+            tanggalAkhir.Format("02 Jan 2006")),
+    }
+
+    const standardWorkStart = 8 * 60
+    const standardWorkEnd = 17 * 60
+    const standardJamKerja = 8.0
+    var totalWorkMinutes float64
+    var completeDays int
+
+    for _, absen := range attendances {
+        summary.TotalHadir++
+        checkInTime, _ := time.Parse("15:04:05", absen.Jam_masuk)
+        checkInMinutes := checkInTime.Hour()*60 + checkInTime.Minute()   
+        if checkInMinutes > standardWorkStart {
+            summary.HariTelat++
+        }
+
+        if absen.Jam_keluar != nil {
+            completeDays++
+            checkOutTime, _ := time.Parse("15:04:05", *absen.Jam_keluar)
+            checkOutMinutes := checkOutTime.Hour()*60 + checkOutTime.Minute()
+            workMinutes := float64(checkOutMinutes - checkInMinutes)
+            
+            if workMinutes < 0 {
+                workMinutes += 24 * 60
+            }
+
+            totalWorkMinutes += workMinutes
+
+            if checkOutMinutes < standardWorkEnd {
+                summary.CheckoutLebihAwal++
+            }
+
+            JamKerja := workMinutes / 60
+            if JamKerja > standardJamKerja {
+                summary.WaktuLembur += (JamKerja - standardJamKerja)
+            }
+        }
+    }
+
+    summary.TotalJamKerja = totalWorkMinutes / 60
+    if completeDays > 0 {
+        summary.RataRataJamKerja = summary.TotalJamKerja / float64(completeDays)
+    }
+    summary.TotalHariKerja = hitungJarakHariKerja(tanggalAwal, tanggalAkhir)
+    summary.TotalAbsen = summary.TotalHariKerja - summary.TotalHadir
+    
+    if summary.TotalHariKerja > 0 {
+        summary.PersentaseKehadiran = (float64(summary.TotalHadir) / float64(summary.TotalHariKerja)) * 100
+    }
+
+    return summary
+}
+
+func hitungJarakHariKerja(tanggalAwal, tanggalAkhir time.Time) int {
+    hariKerja := 0
+    for d := tanggalAwal; !d.After(tanggalAkhir); d = d.AddDate(0, 0, 1) {
+        if d.Weekday() != time.Saturday && d.Weekday() != time.Sunday {
+            hariKerja++
+        }
+    }
+    return hariKerja
+}
+
+
