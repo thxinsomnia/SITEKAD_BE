@@ -20,6 +20,7 @@ func GetLaporan(c *gin.Context) {
 
     currentUser := userData.(models.Penempatan)
     bulan := c.DefaultQuery("bulan", time.Now().Format("2006-01"))
+    fullDay := c.DefaultQuery("fullDay", "true") == "true"
     bulanTime, err := time.Parse("2006-01", bulan)
     if err != nil {
         c.JSON(http.StatusBadRequest, gin.H{"error": "Format bulan tidak valid. Gunakan YYYY-MM"})
@@ -40,18 +41,17 @@ func GetLaporan(c *gin.Context) {
         return
     }
 
-    summary := HitungKehadiran(attendances, bulanTime)
+    summary := HitungKehadiran(attendances, bulanTime, fullDay)
     c.JSON(http.StatusOK, gin.H{
         "summary": summary,
     })
 }
 
-func HitungKehadiran(attendances []models.Absensi, bulan time.Time) models.LaporanAbsensi {
+func HitungKehadiran(attendances []models.Absensi, bulan time.Time, fullDay bool) models.LaporanAbsensi {
     summary := models.LaporanAbsensi{
         Bulan: bulan.Format("January 2006"),
     }
 
- 
     const standardWorkStart = 8 * 60  
     const standardWorkEnd = 17 * 60   
     const standardJamKerja = 8.0
@@ -81,7 +81,6 @@ func HitungKehadiran(attendances []models.Absensi, bulan time.Time) models.Lapor
                 summary.CheckoutLebihAwal++
             }
 
-   
             JamKerja := workMinutes / 60
             if JamKerja > standardJamKerja {
                 summary.WaktuLembur += (JamKerja - standardJamKerja)
@@ -89,14 +88,12 @@ func HitungKehadiran(attendances []models.Absensi, bulan time.Time) models.Lapor
         }
     }
 
-
     summary.TotalJamKerja = totalWorkMinutes / 60 
     if completeDays > 0 {
         summary.RataRataJamKerja = summary.TotalJamKerja / float64(completeDays)
     }
 
-
-    summary.TotalHariKerja = hitungHariKerjaPerbulan(bulan)
+    summary.TotalHariKerja = hitungHariKerjaPerbulan(bulan, fullDay)
     summary.TotalAbsen = summary.TotalHariKerja - summary.TotalHadir
     if summary.TotalHariKerja > 0 {
         summary.PersentaseKehadiran = (float64(summary.TotalHadir) / float64(summary.TotalHariKerja)) * 100
@@ -105,29 +102,18 @@ func HitungKehadiran(attendances []models.Absensi, bulan time.Time) models.Lapor
     return summary
 }
 
-// func hitungHariKerjaPerbulanExcludeWeekend(bulan time.Time) int {
-//     tahun, bulanNum, _ := bulan.Date()
-//     hariPertama := time.Date(tahun, bulanNum, 1, 0, 0, 0, 0, time.Local)
-//     hariTerakhir := hariPertama.AddDate(0, 1, 0).AddDate(0, 0, -1)
-
-//     hariKerja := 0
-//     for d := hariPertama; !d.After(hariTerakhir); d = d.AddDate(0, 0, 1) {
-//         if d.Weekday() != time.Saturday && d.Weekday() != time.Sunday {
-//             hariKerja++
-//         }
-//     }
-
-//     return hariKerja
-// }
-
-
-func hitungHariKerjaPerbulan(bulan time.Time) int {
+func hitungHariKerjaPerbulan(bulan time.Time, fullDay bool) int {
     tahun, bulanNum, _ := bulan.Date()
     hariPertama := time.Date(tahun, bulanNum, 1, 0, 0, 0, 0, time.Local)
     hariTerakhir := hariPertama.AddDate(0, 1, 0).AddDate(0, 0, -1)
+
     hariKerja := 0
     for d := hariPertama; !d.After(hariTerakhir); d = d.AddDate(0, 0, 1) {
-        hariKerja++ 
+        if fullDay {
+            hariKerja++ // Count all days
+        } else if d.Weekday() != time.Saturday && d.Weekday() != time.Sunday {
+            hariKerja++ // Count only weekdays
+        }
     }
 
     return hariKerja
@@ -226,7 +212,6 @@ func LaporanAbsensiHarian(c *gin.Context) {
     })
 }
 
-
 func EksporRekapPDF(c *gin.Context) {
     userData, exists := c.Get("currentUser")
     if !exists {
@@ -240,6 +225,7 @@ func EksporRekapPDF(c *gin.Context) {
     }
 
     bulan := c.DefaultQuery("bulan", time.Now().Format("2006-01"))
+    fullDay := c.DefaultQuery("fullDay", "true") == "true"
     bulanTime, err := time.Parse("2006-01", bulan)
     if err != nil {
         c.JSON(http.StatusBadRequest, gin.H{"error": "Format bulan tidak valid"})
@@ -260,7 +246,7 @@ func EksporRekapPDF(c *gin.Context) {
         return
     }
 
-    summary := HitungKehadiran(attendances, bulanTime)
+    summary := HitungKehadiran(attendances, bulanTime, fullDay)
 
  
     pdf := gofpdf.New("P", "mm", "A4", "")
@@ -321,7 +307,6 @@ func EksporRekapPDF(c *gin.Context) {
     }
 }
 
-
 func EksporRekapExcel(c *gin.Context) {
     userData, exists := c.Get("currentUser")
     if !exists {
@@ -331,6 +316,7 @@ func EksporRekapExcel(c *gin.Context) {
     currentUser := userData.(models.Penempatan)
 
     bulan := c.DefaultQuery("bulan", time.Now().Format("2006-01"))
+    fullDay := c.DefaultQuery("fullDay", "true") == "true"
     bulanTime, err := time.Parse("2006-01", bulan)
     if err != nil {
         c.JSON(http.StatusBadRequest, gin.H{"error": "Format bulan tidak valid"})
@@ -351,7 +337,7 @@ func EksporRekapExcel(c *gin.Context) {
         return
     }
 
-    summary := HitungKehadiran(attendances, bulanTime)
+    summary := HitungKehadiran(attendances, bulanTime, fullDay)
     f := excelize.NewFile()
     defer f.Close()
     sheetName := "Ringkasan"
@@ -420,7 +406,6 @@ func EksporRekapExcel(c *gin.Context) {
         return
     }
 }
-
 
 func EksporHarianExcel(c *gin.Context) {
     userData, exists := c.Get("currentUser")
@@ -577,7 +562,6 @@ func EksporHarianExcel(c *gin.Context) {
     }
 }
 
-
 func GetLaporanCustomTanggal(c *gin.Context) {
     userData, exists := c.Get("currentUser")
     if !exists {
@@ -586,7 +570,8 @@ func GetLaporanCustomTanggal(c *gin.Context) {
     }
     currentUser := userData.(models.Penempatan)
     tanggalAwal := c.Query("tanggal_awal") 
-    tanggalAkhir := c.Query("tanggal_akhir")     
+    tanggalAkhir := c.Query("tanggal_akhir")   
+    fullDay := c.DefaultQuery("fullDay", "true") == "true"  
     if tanggalAwal == "" || tanggalAkhir == "" {
         c.JSON(http.StatusBadRequest, gin.H{"error": "Harap Masukkan Tanggal Awal dan Tanggal Akhir Rekap Absensi!"})
         return
@@ -620,7 +605,7 @@ func GetLaporanCustomTanggal(c *gin.Context) {
         return
     }
 
-    summary := HitungKehadiranCustomTanggal(attendances, start, end)
+    summary := HitungKehadiranCustomTanggal(attendances, start, end, fullDay)
     c.JSON(http.StatusOK, gin.H{
         "summary": summary,
         "date_range": gin.H{
@@ -628,11 +613,11 @@ func GetLaporanCustomTanggal(c *gin.Context) {
             "end":   tanggalAkhir,
             "days":  int(end.Sub(start).Hours()/24) + 1,
         },
+        "fullDay": fullDay,
     })
 }
 
-
-func HitungKehadiranCustomTanggal(attendances []models.Absensi, tanggalAwal, tanggalAkhir time.Time) models.LaporanAbsensi {
+func HitungKehadiranCustomTanggal(attendances []models.Absensi, tanggalAwal, tanggalAkhir time.Time, fullDay bool) models.LaporanAbsensi {
     summary := models.LaporanAbsensi{
         Bulan: fmt.Sprintf("%s - %s", 
             tanggalAwal.Format("02 Jan 2006"), 
@@ -680,7 +665,9 @@ func HitungKehadiranCustomTanggal(attendances []models.Absensi, tanggalAwal, tan
     if completeDays > 0 {
         summary.RataRataJamKerja = summary.TotalJamKerja / float64(completeDays)
     }
-    summary.TotalHariKerja = hitungJarakHariKerja(tanggalAwal, tanggalAkhir)
+    
+    // Use the toggle parameter
+    summary.TotalHariKerja = hitungJarakHariKerja(tanggalAwal, tanggalAkhir, fullDay)
     summary.TotalAbsen = summary.TotalHariKerja - summary.TotalHadir
     
     if summary.TotalHariKerja > 0 {
@@ -690,20 +677,14 @@ func HitungKehadiranCustomTanggal(attendances []models.Absensi, tanggalAwal, tan
     return summary
 }
 
-// func hitungJarakHariKerjaExcludeWeekend(tanggalAwal, tanggalAkhir time.Time) int {
-//     hariKerja := 0
-//     for d := tanggalAwal; !d.After(tanggalAkhir); d = d.AddDate(0, 0, 1) {
-//         if d.Weekday() != time.Saturday && d.Weekday() != time.Sunday {
-//             hariKerja++
-//         }
-//     }
-//     return hariKerja
-// }
-
-func hitungJarakHariKerja(tanggalAwal, tanggalAkhir time.Time) int {
+func hitungJarakHariKerja(tanggalAwal, tanggalAkhir time.Time, fullDay bool) int {
     hariKerja := 0
     for d := tanggalAwal; !d.After(tanggalAkhir); d = d.AddDate(0, 0, 1) {
-        hariKerja++  // Count every day, including weekends
+        if fullDay {
+            hariKerja++ 
+        } else if d.Weekday() != time.Saturday && d.Weekday() != time.Sunday {
+            hariKerja++ 
+        }
     }
     return hariKerja
 }
@@ -722,6 +703,7 @@ func EksporCustomTanggalExcel(c *gin.Context) {
 
     tanggalAwal := c.Query("tanggal_awal")
     tanggalAkhir := c.Query("tanggal_akhir")
+    fullDay := c.DefaultQuery("fullDay", "true") == "true"
     if tanggalAwal == "" || tanggalAkhir == "" {
         c.JSON(http.StatusBadRequest, gin.H{"error": "Parameter tanggal_awal dan tanggal_akhir diperlukan"})
         return
@@ -755,7 +737,7 @@ func EksporCustomTanggalExcel(c *gin.Context) {
         return
     }
 
-    summary := HitungKehadiranCustomTanggal(attendances, start, end)
+    summary := HitungKehadiranCustomTanggal(attendances, start, end, fullDay)
     f := excelize.NewFile()
     defer f.Close()
 
@@ -842,6 +824,7 @@ func EksporCustomTanggalPDF(c *gin.Context) {
 
     tanggalAwal := c.Query("tanggal_awal")
     tanggalAkhir := c.Query("tanggal_akhir")
+    fullDay := c.DefaultQuery("fullDay", "true") == "true"
     if tanggalAwal == "" || tanggalAkhir == "" {
         c.JSON(http.StatusBadRequest, gin.H{"error": "Parameter tanggal_awal dan tanggal_akhir diperlukan"})
         return
@@ -874,7 +857,7 @@ func EksporCustomTanggalPDF(c *gin.Context) {
         return
     }
 
-    summary := HitungKehadiranCustomTanggal(attendances, start, end)
+    summary := HitungKehadiranCustomTanggal(attendances, start, end, fullDay)
     pdf := gofpdf.New("P", "mm", "A4", "")
     pdf.AddPage()
     pdf.SetFont("Arial", "B", 16)
