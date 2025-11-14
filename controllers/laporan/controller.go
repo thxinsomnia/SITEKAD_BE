@@ -105,16 +105,29 @@ func HitungKehadiran(attendances []models.Absensi, bulan time.Time) models.Lapor
     return summary
 }
 
+// func hitungHariKerjaPerbulanExcludeWeekend(bulan time.Time) int {
+//     tahun, bulanNum, _ := bulan.Date()
+//     hariPertama := time.Date(tahun, bulanNum, 1, 0, 0, 0, 0, time.Local)
+//     hariTerakhir := hariPertama.AddDate(0, 1, 0).AddDate(0, 0, -1)
+
+//     hariKerja := 0
+//     for d := hariPertama; !d.After(hariTerakhir); d = d.AddDate(0, 0, 1) {
+//         if d.Weekday() != time.Saturday && d.Weekday() != time.Sunday {
+//             hariKerja++
+//         }
+//     }
+
+//     return hariKerja
+// }
+
+
 func hitungHariKerjaPerbulan(bulan time.Time) int {
     tahun, bulanNum, _ := bulan.Date()
     hariPertama := time.Date(tahun, bulanNum, 1, 0, 0, 0, 0, time.Local)
     hariTerakhir := hariPertama.AddDate(0, 1, 0).AddDate(0, 0, -1)
-
     hariKerja := 0
     for d := hariPertama; !d.After(hariTerakhir); d = d.AddDate(0, 0, 1) {
-        if d.Weekday() != time.Saturday && d.Weekday() != time.Sunday {
-            hariKerja++
-        }
+        hariKerja++ 
     }
 
     return hariKerja
@@ -677,16 +690,23 @@ func HitungKehadiranCustomTanggal(attendances []models.Absensi, tanggalAwal, tan
     return summary
 }
 
+// func hitungJarakHariKerjaExcludeWeekend(tanggalAwal, tanggalAkhir time.Time) int {
+//     hariKerja := 0
+//     for d := tanggalAwal; !d.After(tanggalAkhir); d = d.AddDate(0, 0, 1) {
+//         if d.Weekday() != time.Saturday && d.Weekday() != time.Sunday {
+//             hariKerja++
+//         }
+//     }
+//     return hariKerja
+// }
+
 func hitungJarakHariKerja(tanggalAwal, tanggalAkhir time.Time) int {
     hariKerja := 0
     for d := tanggalAwal; !d.After(tanggalAkhir); d = d.AddDate(0, 0, 1) {
-        if d.Weekday() != time.Saturday && d.Weekday() != time.Sunday {
-            hariKerja++
-        }
+        hariKerja++  // Count every day, including weekends
     }
     return hariKerja
 }
-
 
 func EksporCustomTanggalExcel(c *gin.Context) {
     userData, exists := c.Get("currentUser")
@@ -913,3 +933,4 @@ func EksporCustomTanggalPDF(c *gin.Context) {
         return
     }
 }
+
