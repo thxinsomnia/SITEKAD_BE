@@ -688,3 +688,228 @@ func hitungJarakHariKerja(tanggalAwal, tanggalAkhir time.Time) int {
 }
 
 
+func EksporCustomTanggalExcel(c *gin.Context) {
+    userData, exists := c.Get("currentUser")
+    if !exists {
+        c.JSON(http.StatusUnauthorized, gin.H{"error": "Sesi pengguna tidak valid"})
+        return
+    }
+    currentUser := userData.(models.Penempatan)
+    if err := models.DB.Preload("Pkwt.Tad").First(&currentUser, currentUser.Id).Error; err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data pengguna"})
+        return
+    }
+
+    tanggalAwal := c.Query("tanggal_awal")
+    tanggalAkhir := c.Query("tanggal_akhir")
+    if tanggalAwal == "" || tanggalAkhir == "" {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Parameter tanggal_awal dan tanggal_akhir diperlukan"})
+        return
+    }
+
+    start, err := time.Parse("2006-01-02", tanggalAwal)
+    if err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Format tanggal tidak valid"})
+        return
+    }
+
+    end, err := time.Parse("2006-01-02", tanggalAkhir)
+    if err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Format tanggal tidak valid"})
+        return
+    }
+
+    if end.Before(start) {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "tanggal_akhir harus setelah tanggal_awal"})
+        return
+    }
+
+    var attendances []models.Absensi
+    err = models.DB.Where("penempatan_id = ? AND tgl_absen BETWEEN ? AND ?",
+        currentUser.Id, tanggalAwal, tanggalAkhir).
+        Order("tgl_absen ASC").
+        Find(&attendances).Error
+
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data"})
+        return
+    }
+
+    summary := HitungKehadiranCustomTanggal(attendances, start, end)
+    f := excelize.NewFile()
+    defer f.Close()
+
+    sheetName := "Ringkasan Kehadiran"
+    index, _ := f.NewSheet(sheetName)
+    f.SetActiveSheet(index)
+    headerStyle, _ := f.NewStyle(&excelize.Style{
+        Font: &excelize.Font{Bold: true, Size: 12},
+        Fill: excelize.Fill{Type: "pattern", Color: []string{"#4472C4"}, Pattern: 1},
+        Alignment: &excelize.Alignment{Horizontal: "center", Vertical: "center"},
+    })
+
+
+    f.SetCellValue(sheetName, "A1", "LAPORAN KEHADIRAN - RENTANG TANGGAL")
+    f.MergeCell(sheetName, "A1", "B1")
+    f.SetCellStyle(sheetName, "A1", "B1", headerStyle)
+    f.SetRowHeight(sheetName, 1, 25)
+
+
+    f.SetCellValue(sheetName, "A3", "Nama:")
+    f.SetCellValue(sheetName, "B3", currentUser.Pkwt.Tad.Nama)
+    f.SetCellValue(sheetName, "A4", "Periode:")
+    f.SetCellValue(sheetName, "B4", summary.Bulan)
+
+ 
+    f.SetCellValue(sheetName, "A6", "Metrik")
+    f.SetCellValue(sheetName, "B6", "Nilai")
+    f.SetCellStyle(sheetName, "A6", "B6", headerStyle)
+
+    row := 7
+    summaryData := [][]interface{}{
+        {"Total Hari Kerja", summary.TotalHariKerja},
+        {"Total Hadir", summary.TotalHadir},
+        {"Total Absen", summary.TotalAbsen},
+        {"Hari Telat", summary.HariTelat},
+        {"Checkout Lebih Awal", summary.CheckoutLebihAwal},
+        {"Total Jam Kerja", fmt.Sprintf("%.2f jam", summary.TotalJamKerja)},
+        {"Rata-rata Jam Kerja", fmt.Sprintf("%.2f jam/hari", summary.RataRataJamKerja)},
+        {"Waktu Lembur", fmt.Sprintf("%.2f jam", summary.WaktuLembur)},
+        {"Persentase Kehadiran", fmt.Sprintf("%.2f%%", summary.PersentaseKehadiran)},
+    }
+
+    for _, data := range summaryData {
+        f.SetCellValue(sheetName, fmt.Sprintf("A%d", row), data[0])
+        f.SetCellValue(sheetName, fmt.Sprintf("B%d", row), data[1])
+        row++
+    }
+
+    f.SetColWidth(sheetName, "A", "A", 25)
+    f.SetColWidth(sheetName, "B", "B", 20)
+
+    row += 2
+    f.SetCellValue(sheetName, fmt.Sprintf("A%d", row), 
+        fmt.Sprintf("Dibuat pada: %s", time.Now().Format("02 January 2006 15:04:05")))
+
+    f.DeleteSheet("Sheet1")
+
+    filename := fmt.Sprintf("Laporan_Kehadiran_%s_%s_to_%s.xlsx", 
+        currentUser.Pkwt.Tad.Nama, 
+        start.Format("2006-01-02"), 
+        end.Format("2006-01-02"))
+
+    c.Header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filename))
+
+    if err := f.Write(c.Writer); err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal membuat Excel"})
+        return
+    }
+}
+
+
+func EksporCustomTanggalPDF(c *gin.Context) {
+    userData, exists := c.Get("currentUser")
+    if !exists {
+        c.JSON(http.StatusUnauthorized, gin.H{"error": "Sesi pengguna tidak valid"})
+        return
+    }
+    currentUser := userData.(models.Penempatan)
+    if err := models.DB.Preload("Pkwt.Tad").First(&currentUser, currentUser.Id).Error; err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data pengguna"})
+        return
+    }
+
+    tanggalAwal := c.Query("tanggal_awal")
+    tanggalAkhir := c.Query("tanggal_akhir")
+    if tanggalAwal == "" || tanggalAkhir == "" {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Parameter tanggal_awal dan tanggal_akhir diperlukan"})
+        return
+    }
+
+    start, err := time.Parse("2006-01-02", tanggalAwal)
+    if err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Format tanggal tidak valid"})
+        return
+    }
+
+    end, err := time.Parse("2006-01-02", tanggalAkhir)
+    if err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Format tanggal tidak valid"})
+        return
+    }
+
+    if end.Before(start) {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "tanggal_akhir harus setelah tanggal_awal"})
+        return
+    }
+
+    var attendances []models.Absensi
+    err = models.DB.Where("penempatan_id = ? AND tgl_absen BETWEEN ? AND ?",
+        currentUser.Id, tanggalAwal, tanggalAkhir).
+        Order("tgl_absen ASC").
+        Find(&attendances).Error
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data"})
+        return
+    }
+
+    summary := HitungKehadiranCustomTanggal(attendances, start, end)
+    pdf := gofpdf.New("P", "mm", "A4", "")
+    pdf.AddPage()
+    pdf.SetFont("Arial", "B", 16)
+    pdf.Cell(40, 10, "Laporan Kehadiran")
+    pdf.Ln(12)
+
+
+    pdf.SetFont("Arial", "", 12)
+    pdf.Cell(40, 10, fmt.Sprintf("Nama: %s", currentUser.Pkwt.Tad.Nama))
+    pdf.Ln(8)
+    pdf.Cell(40, 10, fmt.Sprintf("Periode: %s", summary.Bulan))
+    pdf.Ln(12)
+
+    pdf.SetFont("Arial", "B", 12)
+    pdf.Cell(90, 10, "Metrik")
+    pdf.Cell(90, 10, "Nilai")
+    pdf.Ln(10)
+
+    pdf.SetFont("Arial", "", 11)
+    metrics := []struct {
+        label string
+        value string
+    }{
+        {"Total Hari Kerja", fmt.Sprintf("%d hari", summary.TotalHariKerja)},
+        {"Total Hadir", fmt.Sprintf("%d hari", summary.TotalHadir)},
+        {"Total Absen", fmt.Sprintf("%d hari", summary.TotalAbsen)},
+        {"Hari Telat", fmt.Sprintf("%d hari", summary.HariTelat)},
+        {"Checkout Lebih Awal", fmt.Sprintf("%d hari", summary.CheckoutLebihAwal)},
+        {"Total Jam Kerja", fmt.Sprintf("%.2f jam", summary.TotalJamKerja)},
+        {"Rata-rata Jam Kerja", fmt.Sprintf("%.2f jam/hari", summary.RataRataJamKerja)},
+        {"Waktu Lembur", fmt.Sprintf("%.2f jam", summary.WaktuLembur)},
+        {"Persentase Kehadiran", fmt.Sprintf("%.2f%%", summary.PersentaseKehadiran)},
+    }
+
+    for _, m := range metrics {
+        pdf.Cell(90, 8, m.label)
+        pdf.Cell(90, 8, m.value)
+        pdf.Ln(8)
+    }
+
+
+    pdf.Ln(10)
+    pdf.SetFont("Arial", "I", 9)
+    pdf.Cell(0, 10, fmt.Sprintf("Dibuat pada: %s", time.Now().Format("02 January 2006 15:04:05")))
+    filename := fmt.Sprintf("Laporan_Kehadiran_%s_%s_to_%s.pdf", 
+        currentUser.Pkwt.Tad.Nama, 
+        start.Format("2006-01-02"), 
+        end.Format("2006-01-02"))
+
+    c.Header("Content-Type", "application/pdf")
+    c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filename))
+    
+    err = pdf.Output(c.Writer)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal membuat PDF"})
+        return
+    }
+}
