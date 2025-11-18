@@ -917,3 +917,71 @@ func EksporCustomTanggalPDF(c *gin.Context) {
     }
 }
 
+func GetLaporanKehadiranCabang(c *gin.Context) {
+    cabangID := c.Query("cid")
+    if cabangID == "" {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Parameter cabang_id diperlukan"})
+        return
+    }
+    bulan := c.DefaultQuery("bulan", time.Now().Format("2006-01"))
+    fullDay := c.DefaultQuery("fullDay", "true") == "true"
+    bulanTime, err := time.Parse("2006-01", bulan)
+    if err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Format bulan tidak valid"})
+        return
+    }
+
+    tanggalAwal := bulanTime.Format("2006-01-02")
+    tanggalAkhir := bulanTime.AddDate(0, 1, 0).AddDate(0, 0, -1).Format("2006-01-02")
+    var cabang models.Cabang
+    if err := models.DB.First(&cabang, cabangID).Error; err != nil {
+        c.JSON(http.StatusNotFound, gin.H{"error": "Cabang tidak ditemukan"})
+        return
+    }
+
+    var penempatanList []models.Penempatan
+    err = models.DB.Preload("Pkwt.Tad").
+        Preload("Pkwt.Jabatan"). 
+        Where("cabang_id = ?", cabangID).
+        Find(&penempatanList).Error
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data karyawan"})
+        return
+    }
+
+    var rekapSeluruhPegawai []models.RekapPegawai
+
+    for _, penempatan := range penempatanList {
+        var attendances []models.Absensi
+        models.DB.Where("penempatan_id = ? AND tgl_absen BETWEEN ? AND ?",
+            penempatan.Id, tanggalAwal, tanggalAkhir).
+            Order("tgl_absen ASC").
+            Find(&attendances)
+
+   
+        summary := HitungKehadiran(attendances, bulanTime, fullDay)
+        rekapPegawai := models.RekapPegawai{
+            Nama:                penempatan.Pkwt.Tad.Nama,
+            Jabatan:             penempatan.Pkwt.Jabatan.Nama,
+            TotalHariKerja:      summary.TotalHariKerja,
+            TotalHadir:          summary.TotalHadir,
+            TotalAbsen:          summary.TotalAbsen,
+            HariTelat:           summary.HariTelat,
+            TotalJamKerja:       summary.TotalJamKerja,
+            RataRataJamKerja:    summary.RataRataJamKerja,
+            PersentaseKehadiran: summary.PersentaseKehadiran,
+        }
+
+        rekapSeluruhPegawai = append(rekapSeluruhPegawai, rekapPegawai)
+    }
+
+    c.JSON(http.StatusOK, gin.H{
+        "cabang":           cabang.Nama,
+        "cabang_id":        cabang.ID,
+        "bulan":            bulanTime.Format("January 2006"),
+        "total_karyawan":   len(rekapSeluruhPegawai),
+        "laporan_karyawan": rekapSeluruhPegawai,
+        "fullDay": fullDay,
+    })
+}
+
