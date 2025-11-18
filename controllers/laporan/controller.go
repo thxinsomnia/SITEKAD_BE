@@ -1131,3 +1131,118 @@ func EksporLaporanKehadiranCabangExcel(c *gin.Context) {
     }
 }
 
+func EksporLaporanKehadiranCabangPDF(c *gin.Context) {
+    cabangID := c.Query("cid")
+    if cabangID == "" {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Parameter cabang_id diperlukan"})
+        return
+    }
+
+    bulan := c.DefaultQuery("bulan", time.Now().Format("2006-01"))
+    fullDay := c.DefaultQuery("fullDay", "true") == "true"
+    bulanTime, err := time.Parse("2006-01", bulan)
+    if err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Format bulan tidak valid"})
+        return
+    }
+
+    tanggalAwal := bulanTime.Format("2006-01-02")
+    tanggalAkhir := bulanTime.AddDate(0, 1, 0).AddDate(0, 0, -1).Format("2006-01-02")
+    var cabang models.Cabang
+    if err := models.DB.First(&cabang, cabangID).Error; err != nil {
+        c.JSON(http.StatusNotFound, gin.H{"error": "Cabang tidak ditemukan"})
+        return
+    }
+
+    var penempatanList []models.Penempatan
+    err = models.DB.Preload("Pkwt.Tad").
+        Preload("Pkwt.Jabatan").
+        Where("cabang_id = ?", cabangID).
+        Find(&penempatanList).Error
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data karyawan"})
+        return
+    }
+
+    var rekapSeluruhPegawai []models.RekapPegawai
+    for _, penempatan := range penempatanList {
+        var attendances []models.Absensi
+        models.DB.Where("penempatan_id = ? AND tgl_absen BETWEEN ? AND ?",
+            penempatan.Id, tanggalAwal, tanggalAkhir).
+            Order("tgl_absen ASC").
+            Find(&attendances)
+
+        summary := HitungKehadiran(attendances, bulanTime, fullDay)
+        rekapPegawai := models.RekapPegawai{
+            Nama:                penempatan.Pkwt.Tad.Nama,
+            Jabatan:             penempatan.Pkwt.Jabatan.Nama,
+            TotalHariKerja:      summary.TotalHariKerja,
+            TotalHadir:          summary.TotalHadir,
+            TotalAbsen:          summary.TotalAbsen,
+            HariTelat:           summary.HariTelat,
+            TotalJamKerja:       summary.TotalJamKerja,
+            RataRataJamKerja:    summary.RataRataJamKerja,
+            PersentaseKehadiran: summary.PersentaseKehadiran,
+        }
+
+        rekapSeluruhPegawai = append(rekapSeluruhPegawai, rekapPegawai)
+    }
+
+
+    pdf := gofpdf.New("L", "mm", "A4", "")
+    pdf.AddPage()
+    pdf.SetFont("Arial", "B", 16)
+    pdf.Cell(0, 10, "LAPORAN KEHADIRAN KARYAWAN PER CABANG")
+    pdf.Ln(10)
+    pdf.SetFont("Arial", "", 12)
+    pdf.Cell(0, 8, fmt.Sprintf("Cabang: %s", cabang.Nama))
+    pdf.Ln(6)
+    pdf.Cell(0, 8, fmt.Sprintf("Periode: %s", bulanTime.Format("January 2006")))
+    pdf.Ln(6)
+    pdf.Cell(0, 8, fmt.Sprintf("Total Karyawan: %d", len(rekapSeluruhPegawai)))
+    pdf.Ln(12)
+    pdf.SetFont("Arial", "B", 9)
+    pdf.SetFillColor(68, 114, 196)
+    pdf.SetTextColor(255, 255, 255)
+    
+    columnWidths := []float64{10, 45, 35, 20, 15, 15, 15, 20, 25, 25}
+    headers := []string{"No", "Nama", "Jabatan", "Hari Kerja", "Hadir", "Absen", "Telat", "Total Jam", "Rata² Jam", "Kehadiran %"}
+    
+    for i, header := range headers {
+        pdf.CellFormat(columnWidths[i], 8, header, "1", 0, "C", true, 0, "")
+    }
+    pdf.Ln(-1)
+    pdf.SetFont("Arial", "", 8)
+    pdf.SetTextColor(0, 0, 0)
+    pdf.SetFillColor(240, 240, 240)
+
+    for i, emp := range rekapSeluruhPegawai {
+        fill := i%2 == 0
+        
+        pdf.CellFormat(columnWidths[0], 7, fmt.Sprintf("%d", i+1), "1", 0, "C", fill, 0, "")
+        pdf.CellFormat(columnWidths[1], 7, emp.Nama, "1", 0, "L", fill, 0, "")
+        pdf.CellFormat(columnWidths[2], 7, emp.Jabatan, "1", 0, "L", fill, 0, "")
+        pdf.CellFormat(columnWidths[3], 7, fmt.Sprintf("%d", emp.TotalHariKerja), "1", 0, "C", fill, 0, "")
+        pdf.CellFormat(columnWidths[4], 7, fmt.Sprintf("%d", emp.TotalHadir), "1", 0, "C", fill, 0, "")
+        pdf.CellFormat(columnWidths[5], 7, fmt.Sprintf("%d", emp.TotalAbsen), "1", 0, "C", fill, 0, "")
+        pdf.CellFormat(columnWidths[6], 7, fmt.Sprintf("%d", emp.HariTelat), "1", 0, "C", fill, 0, "")
+        pdf.CellFormat(columnWidths[7], 7, fmt.Sprintf("%.1f", emp.TotalJamKerja), "1", 0, "C", fill, 0, "")
+        pdf.CellFormat(columnWidths[8], 7, fmt.Sprintf("%.2f", emp.RataRataJamKerja), "1", 0, "C", fill, 0, "")
+        pdf.CellFormat(columnWidths[9], 7, fmt.Sprintf("%.1f%%", emp.PersentaseKehadiran), "1", 0, "C", fill, 0, "")
+        pdf.Ln(-1)
+    }
+
+    pdf.Ln(10)
+    pdf.SetFont("Arial", "I", 9)
+    pdf.Cell(0, 10, fmt.Sprintf("Dibuat pada: %s", time.Now().Format("02 January 2006 15:04:05")))
+    filename := fmt.Sprintf("Laporan_Kehadiran_Cabang_%s_%s.pdf",
+        cabang.Nama, bulanTime.Format("2006-01"))
+    c.Header("Content-Type", "application/pdf")
+    c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+    err = pdf.Output(c.Writer)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal membuat PDF"})
+        return
+    }
+}
+
