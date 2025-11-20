@@ -64,9 +64,14 @@ func main() {
 			api.GET("/kehadiran/rekap/custom", laporancontrollers.GetLaporanCustomTanggal)
 			api.GET("/kehadiran/custom/download/pdf", laporancontrollers.EksporCustomTanggalPDF)
 			api.GET("/kehadiran/custom/download/excel", laporancontrollers.EksporCustomTanggalExcel)
-			
+			api.GET("/kehadiran/rekap/all", laporancontrollers.GetLaporanKehadiran)
+			api.GET("/kehadiran/rekap/all/download/pdf", laporancontrollers.EksporLaporanKehadiranPDF)
+			api.GET("/kehadiran/rekap/all/download/excel", laporancontrollers.EksporLaporanKehadiranExcel)
+			api.GET("/kehadiran/cabang/rekap", laporancontrollers.GetLaporanKehadiranCabang)
+			api.GET("/kehadiran/cabang/rekap/download/pdf", laporancontrollers.EksporLaporanKehadiranCabangPDF)
+			api.GET("/kehadiran/cabang/rekap/download/excel", laporancontrollers.EksporLaporanKehadiranCabangExcel)
 		}
-	}
+	}	
 
 	loc, _ := time.LoadLocation("Asia/Jakarta")
 	s := gocron.NewScheduler(loc)

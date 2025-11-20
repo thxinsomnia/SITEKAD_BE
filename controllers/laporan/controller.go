@@ -1246,3 +1246,313 @@ func EksporLaporanKehadiranCabangPDF(c *gin.Context) {
     }
 }
 
+func GetLaporanKehadiran(c *gin.Context) {
+    lokasiID := c.Query("lid")
+    if lokasiID == "" {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Parameter lokasi_id diperlukan"})
+        return
+    }
+    bulan := c.DefaultQuery("bulan", time.Now().Format("2006-01"))
+    fullDay := c.DefaultQuery("fullDay", "true") == "true"
+    bulanTime, err := time.Parse("2006-01", bulan)
+    if err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Format bulan tidak valid"})
+        return
+    }
+    tanggalAwal := bulanTime.Format("2006-01-02")
+    tanggalAkhir := bulanTime.AddDate(0, 1, 0).AddDate(0, 0, -1).Format("2006-01-02")
+    var lokasi models.Lokasi
+    if err := models.DB.First(&lokasi, lokasiID).Error; err != nil {
+        c.JSON(http.StatusNotFound, gin.H{"error": "Lokasi tidak ditemukan"})
+        return
+    }
+    var penempatanList []models.Penempatan
+    err = models.DB.Preload("Pkwt.Tad").
+        Preload("Pkwt.Jabatan"). 
+        Where("lokasi_kerja_id = ?", lokasiID).
+        Find(&penempatanList).Error
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data karyawan"})
+        return
+    }
+    var rekapSeluruhPegawai []models.RekapPegawai
+    for _, penempatan := range penempatanList {
+        var attendances []models.Absensi
+        models.DB.Where("penempatan_id = ? AND tgl_absen BETWEEN ? AND ?",
+            penempatan.Id, tanggalAwal, tanggalAkhir).
+            Order("tgl_absen ASC").
+            Find(&attendances)
+        summary := HitungKehadiran(attendances, bulanTime, fullDay)
+        rekapPegawai := models.RekapPegawai{
+            Nama:                penempatan.Pkwt.Tad.Nama,
+            Jabatan:             penempatan.Pkwt.Jabatan.Nama,
+            TotalHariKerja:      summary.TotalHariKerja,
+            TotalHadir:          summary.TotalHadir,
+            TotalAbsen:          summary.TotalAbsen,
+            HariTelat:           summary.HariTelat,
+            TotalJamKerja:       summary.TotalJamKerja,
+            RataRataJamKerja:    summary.RataRataJamKerja,
+            PersentaseKehadiran: summary.PersentaseKehadiran,
+        }
+        rekapSeluruhPegawai = append(rekapSeluruhPegawai, rekapPegawai)
+    }
+
+    c.JSON(http.StatusOK, gin.H{
+        "lokasi":           lokasi.Nama,
+        "lokasi_id":        lokasi.ID,
+        "bulan":            bulanTime.Format("January 2006"),
+        "total_karyawan":   len(rekapSeluruhPegawai),
+        "laporan_karyawan": rekapSeluruhPegawai,
+        "fullDay": fullDay,
+    })
+}
+
+func EksporLaporanKehadiranExcel(c *gin.Context) {
+    lokasiID := c.Query("lid")
+    if lokasiID == "" {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Parameter lokasi_id diperlukan"})
+        return
+    }
+    bulan := c.DefaultQuery("bulan", time.Now().Format("2006-01"))
+    fullDay := c.DefaultQuery("fullDay", "true") == "true"
+    bulanTime, err := time.Parse("2006-01", bulan)
+    if err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Format bulan tidak valid"})
+        return
+    }
+
+    tanggalAwal := bulanTime.Format("2006-01-02")
+    tanggalAkhir := bulanTime.AddDate(0, 1, 0).AddDate(0, 0, -1).Format("2006-01-02")
+    var lokasi models.Lokasi
+    if err := models.DB.First(&lokasi, lokasiID).Error; err != nil {
+        c.JSON(http.StatusNotFound, gin.H{"error": "Lokasi kerja tidak ditemukan"})
+        return
+    }
+    var penempatanList []models.Penempatan
+    err = models.DB.Preload("Pkwt.Tad").
+        Preload("Pkwt.Jabatan").
+        Where("lokasi_kerja_id = ?", lokasiID).
+        Find(&penempatanList).Error
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data karyawan"})
+        return
+    }
+    var rekapSeluruhPegawai []models.RekapPegawai
+    for _, penempatan := range penempatanList {
+        var attendances []models.Absensi
+        models.DB.Where("penempatan_id = ? AND tgl_absen BETWEEN ? AND ?",
+            penempatan.Id, tanggalAwal, tanggalAkhir).
+            Order("tgl_absen ASC").
+            Find(&attendances)
+
+        summary := HitungKehadiran(attendances, bulanTime, fullDay)
+        rekapPegawai := models.RekapPegawai{
+            Nama:                penempatan.Pkwt.Tad.Nama,
+            Jabatan:             penempatan.Pkwt.Jabatan.Nama,
+            TotalHariKerja:      summary.TotalHariKerja,
+            TotalHadir:          summary.TotalHadir,
+            TotalAbsen:          summary.TotalAbsen,
+            HariTelat:           summary.HariTelat,
+            TotalJamKerja:       summary.TotalJamKerja,
+            RataRataJamKerja:    summary.RataRataJamKerja,
+            PersentaseKehadiran: summary.PersentaseKehadiran,
+        }
+
+        rekapSeluruhPegawai = append(rekapSeluruhPegawai, rekapPegawai)
+    }
+
+    f := excelize.NewFile()
+    defer f.Close()
+    sheetName := "Laporan Kehadiran"
+    index, _ := f.NewSheet(sheetName)
+    f.SetActiveSheet(index)
+    headerStyle, _ := f.NewStyle(&excelize.Style{
+        Font:      &excelize.Font{Bold: true, Size: 12, Color: "#FFFFFF"},
+        Fill:      excelize.Fill{Type: "pattern", Color: []string{"#4472C4"}, Pattern: 1},
+        Alignment: &excelize.Alignment{Horizontal: "center", Vertical: "center"},
+        Border: []excelize.Border{
+            {Type: "left", Color: "#000000", Style: 1},
+            {Type: "right", Color: "#000000", Style: 1},
+            {Type: "top", Color: "#000000", Style: 1},
+            {Type: "bottom", Color: "#000000", Style: 1},
+        },
+    })
+
+    f.SetCellValue(sheetName, "A1", "LAPORAN KEHADIRAN KARYAWAN PER LOKASI KERJA")
+    f.MergeCell(sheetName, "A1", "I1")
+    f.SetCellStyle(sheetName, "A1", "I1", headerStyle)
+    f.SetRowHeight(sheetName, 1, 25)
+    f.SetCellValue(sheetName, "A2", fmt.Sprintf("Lokasi: %s", lokasi.Nama))
+    f.SetCellValue(sheetName, "A3", fmt.Sprintf("Periode: %s", bulanTime.Format("January 2006")))
+    f.SetCellValue(sheetName, "A4", fmt.Sprintf("Total Karyawan: %d", len(rekapSeluruhPegawai)))
+    headers := []string{
+        "No", "Nama", "Jabatan", "Total Hari Kerja", "Hadir", 
+        "Absen", "Telat", "Total Jam", "Rata-rata Jam", "Kehadiran %",
+    }
+    for i, header := range headers {
+        cell := fmt.Sprintf("%s6", string(rune('A'+i)))
+        f.SetCellValue(sheetName, cell, header)
+        f.SetCellStyle(sheetName, cell, cell, headerStyle)
+    }
+    dataStyle, _ := f.NewStyle(&excelize.Style{
+        Border: []excelize.Border{
+            {Type: "left", Color: "#000000", Style: 1},
+            {Type: "right", Color: "#000000", Style: 1},
+            {Type: "top", Color: "#000000", Style: 1},
+            {Type: "bottom", Color: "#000000", Style: 1},
+        },
+    })
+
+    row := 7
+    for i, emp := range rekapSeluruhPegawai {
+        f.SetCellValue(sheetName, fmt.Sprintf("A%d", row), i+1)
+        f.SetCellValue(sheetName, fmt.Sprintf("B%d", row), emp.Nama)
+        f.SetCellValue(sheetName, fmt.Sprintf("C%d", row), emp.Jabatan)
+        f.SetCellValue(sheetName, fmt.Sprintf("D%d", row), emp.TotalHariKerja)
+        f.SetCellValue(sheetName, fmt.Sprintf("E%d", row), emp.TotalHadir)
+        f.SetCellValue(sheetName, fmt.Sprintf("F%d", row), emp.TotalAbsen)
+        f.SetCellValue(sheetName, fmt.Sprintf("G%d", row), emp.HariTelat)
+        f.SetCellValue(sheetName, fmt.Sprintf("H%d", row), fmt.Sprintf("%.2f", emp.TotalJamKerja))
+        f.SetCellValue(sheetName, fmt.Sprintf("I%d", row), fmt.Sprintf("%.2f", emp.RataRataJamKerja))
+        f.SetCellValue(sheetName, fmt.Sprintf("J%d", row), fmt.Sprintf("%.2f%%", emp.PersentaseKehadiran))
+        for col := 'A'; col <= 'J'; col++ {
+            cell := fmt.Sprintf("%c%d", col, row)
+            f.SetCellStyle(sheetName, cell, cell, dataStyle)
+        }
+
+        row++
+    }
+
+
+    f.SetColWidth(sheetName, "A", "A", 5)
+    f.SetColWidth(sheetName, "B", "B", 25)
+    f.SetColWidth(sheetName, "C", "C", 20)
+    f.SetColWidth(sheetName, "D", "D", 15)
+    f.SetColWidth(sheetName, "E", "E", 10)
+    f.SetColWidth(sheetName, "F", "F", 10)
+    f.SetColWidth(sheetName, "G", "G", 10)
+    f.SetColWidth(sheetName, "H", "H", 12)
+    f.SetColWidth(sheetName, "I", "I", 15)
+    f.SetColWidth(sheetName, "J", "J", 13)
+    row += 2
+    f.SetCellValue(sheetName, fmt.Sprintf("A%d", row),
+        fmt.Sprintf("Dibuat pada: %s", time.Now().Format("02 January 2006 15:04:05")))
+    f.DeleteSheet("Sheet1")
+    filename := fmt.Sprintf("Laporan_Kehadiran_%s_%s.xlsx",
+        lokasi.Nama, bulanTime.Format("2006-01"))
+    c.Header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+    if err := f.Write(c.Writer); err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal membuat Excel"})
+        return
+    }
+}
+
+func EksporLaporanKehadiranPDF(c *gin.Context) {
+    lokasiID := c.Query("lid")
+    if lokasiID == "" {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Parameter lokasi_id diperlukan"})
+        return
+    }
+    bulan := c.DefaultQuery("bulan", time.Now().Format("2006-01"))
+    fullDay := c.DefaultQuery("fullDay", "true") == "true"
+    bulanTime, err := time.Parse("2006-01", bulan)
+    if err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Format bulan tidak valid"})
+        return
+    }
+    tanggalAwal := bulanTime.Format("2006-01-02")
+    tanggalAkhir := bulanTime.AddDate(0, 1, 0).AddDate(0, 0, -1).Format("2006-01-02")
+    var lokasi models.Lokasi
+    if err := models.DB.First(&lokasi, lokasiID).Error; err != nil {
+        c.JSON(http.StatusNotFound, gin.H{"error": "Lokasi tidak ditemukan"})
+        return
+    }
+    var penempatanList []models.Penempatan
+    err = models.DB.Preload("Pkwt.Tad").
+        Preload("Pkwt.Jabatan").
+        Where("lokasi_kerja_id = ?", lokasiID).
+        Find(&penempatanList).Error
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data karyawan"})
+        return
+    }
+
+    var rekapSeluruhPegawai []models.RekapPegawai
+    for _, penempatan := range penempatanList {
+        var attendances []models.Absensi
+        models.DB.Where("penempatan_id = ? AND tgl_absen BETWEEN ? AND ?",
+            penempatan.Id, tanggalAwal, tanggalAkhir).
+            Order("tgl_absen ASC").
+            Find(&attendances)
+
+        summary := HitungKehadiran(attendances, bulanTime, fullDay)
+        rekapPegawai := models.RekapPegawai{
+            Nama:                penempatan.Pkwt.Tad.Nama,
+            Jabatan:             penempatan.Pkwt.Jabatan.Nama,
+            TotalHariKerja:      summary.TotalHariKerja,
+            TotalHadir:          summary.TotalHadir,
+            TotalAbsen:          summary.TotalAbsen,
+            HariTelat:           summary.HariTelat,
+            TotalJamKerja:       summary.TotalJamKerja,
+            RataRataJamKerja:    summary.RataRataJamKerja,
+            PersentaseKehadiran: summary.PersentaseKehadiran,
+        }
+        rekapSeluruhPegawai = append(rekapSeluruhPegawai, rekapPegawai)
+    }
+    pdf := gofpdf.New("L", "mm", "A4", "")
+    pdf.AddPage()
+    pdf.SetFont("Arial", "B", 16)
+    pdf.Cell(0, 10, "LAPORAN KEHADIRAN KARYAWAN PER LOKASI KERJA")
+    pdf.Ln(10)
+    pdf.SetFont("Arial", "", 12)
+    pdf.Cell(0, 8, fmt.Sprintf("Lokasi: %s", lokasi.Nama))
+    pdf.Ln(6)
+    pdf.Cell(0, 8, fmt.Sprintf("Periode: %s", bulanTime.Format("January 2006")))
+    pdf.Ln(6)
+    pdf.Cell(0, 8, fmt.Sprintf("Total Karyawan: %d", len(rekapSeluruhPegawai)))
+    pdf.Ln(12)
+    pdf.SetFont("Arial", "B", 9)
+    pdf.SetFillColor(68, 114, 196)
+    pdf.SetTextColor(255, 255, 255)
+    
+    columnWidths := []float64{10, 45, 35, 20, 15, 15, 15, 20, 25, 25}
+    headers := []string{"No", "Nama", "Jabatan", "Hari Kerja", "Hadir", "Absen", "Telat", "Total Jam", "Rata² Jam", "Kehadiran %"}
+    for i, header := range headers {
+        pdf.CellFormat(columnWidths[i], 8, header, "1", 0, "C", true, 0, "")
+    }
+    pdf.Ln(-1)
+    pdf.SetFont("Arial", "", 8)
+    pdf.SetTextColor(0, 0, 0)
+    pdf.SetFillColor(240, 240, 240)
+
+    for i, emp := range rekapSeluruhPegawai {
+        fill := i%2 == 0
+        
+        pdf.CellFormat(columnWidths[0], 7, fmt.Sprintf("%d", i+1), "1", 0, "C", fill, 0, "")
+        pdf.CellFormat(columnWidths[1], 7, emp.Nama, "1", 0, "L", fill, 0, "")
+        pdf.CellFormat(columnWidths[2], 7, emp.Jabatan, "1", 0, "L", fill, 0, "")
+        pdf.CellFormat(columnWidths[3], 7, fmt.Sprintf("%d", emp.TotalHariKerja), "1", 0, "C", fill, 0, "")
+        pdf.CellFormat(columnWidths[4], 7, fmt.Sprintf("%d", emp.TotalHadir), "1", 0, "C", fill, 0, "")
+        pdf.CellFormat(columnWidths[5], 7, fmt.Sprintf("%d", emp.TotalAbsen), "1", 0, "C", fill, 0, "")
+        pdf.CellFormat(columnWidths[6], 7, fmt.Sprintf("%d", emp.HariTelat), "1", 0, "C", fill, 0, "")
+        pdf.CellFormat(columnWidths[7], 7, fmt.Sprintf("%.1f", emp.TotalJamKerja), "1", 0, "C", fill, 0, "")
+        pdf.CellFormat(columnWidths[8], 7, fmt.Sprintf("%.2f", emp.RataRataJamKerja), "1", 0, "C", fill, 0, "")
+        pdf.CellFormat(columnWidths[9], 7, fmt.Sprintf("%.1f%%", emp.PersentaseKehadiran), "1", 0, "C", fill, 0, "")
+        pdf.Ln(-1)
+    }
+
+    pdf.Ln(10)
+    pdf.SetFont("Arial", "I", 9)
+    pdf.Cell(0, 10, fmt.Sprintf("Dibuat pada: %s", time.Now().Format("02 January 2006 15:04:05")))
+    filename := fmt.Sprintf("Laporan_Kehadiran_%s_%s.pdf",
+        lokasi.Nama, bulanTime.Format("2006-01"))
+
+    c.Header("Content-Type", "application/pdf")
+    c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+    err = pdf.Output(c.Writer)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal membuat PDF"})
+        return
+    }
+}
