@@ -22,6 +22,8 @@ type Absensi struct {
 	CreatedAt     time.Time `gorm:"type timestamp" json:"created_at"`
 	UpdatedAt     time.Time `gorm:"type timestamp" json:"updated_at"`
 	Is_deleted    int8    `gorm:"type tinyint" json:"is_deleted"`
+
+	Penempatan	Penempatan      `gorm:"foreignKey:Penempatan_id"`
 }
 
 func (Absensi) TableName() string {
