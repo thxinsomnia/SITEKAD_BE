@@ -217,3 +217,298 @@ func ExtractAttendanceFeatures(penempatanID int64, date string) AttendanceFeatur
     return features
 }
 
+// Train model with historical data
+func TrainAnomalyModel(c *gin.Context) {
+    startDate := c.DefaultQuery("start_date", time.Now().AddDate(0, -6, 0).Format("2006-01-02"))
+    endDate := c.DefaultQuery("end_date", time.Now().Format("2006-01-02"))
+
+    var attendances []models.Absensi
+    result := models.DB.Where("tgl_absen BETWEEN ? AND ?", startDate, endDate).
+        Find(&attendances)
+
+    if result.Error != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{
+            "error": "Gagal Melakukan Fetch Data Absensi!",
+        })
+        return
+    }
+
+    if len(attendances) == 0 {
+        c.JSON(http.StatusBadRequest, gin.H{
+            "error": "Tidak ada data absensi yang ditemukan dalam rentang tanggal tersebut.",
+        })
+        return
+    }
+
+    var trainingData []AttendanceFeatures
+    processedDates := make(map[string]map[int64]bool)
+
+    for _, absen := range attendances {  
+        if processedDates[absen.Tgl_absen] == nil {
+            processedDates[absen.Tgl_absen] = make(map[int64]bool)
+        }
+
+        if !processedDates[absen.Tgl_absen][absen.Penempatan_id] {
+            features := ExtractAttendanceFeatures(absen.Penempatan_id, absen.Tgl_absen)
+            trainingData = append(trainingData, features)
+            processedDates[absen.Tgl_absen][absen.Penempatan_id] = true
+        }
+    }
+
+    payload := map[string]interface{}{
+        "training_data": trainingData,
+    }
+
+    jsonData, _ := json.Marshal(payload)
+    resp, err := http.Post(ML_SERVICE_URL+"/train", "application/json", bytes.NewBuffer(jsonData))
+
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{
+            "error":   "Layanan Servis Sedang tidak tersedia",
+            "details": err.Error(),
+        })
+        return
+    }
+    defer resp.Body.Close()
+
+    var mlResult map[string]interface{}
+    json.NewDecoder(resp.Body).Decode(&mlResult)
+
+    c.JSON(http.StatusOK, gin.H{
+        "message":          "Model Berhasil Dilatih!",
+        "training_samples": len(trainingData),
+        "date_range": gin.H{
+            "start": startDate,
+            "end":   endDate,
+        },
+        "ml_response": mlResult,
+    })
+}
+
+// Detect anomalies for a specific date
+func DetectAttendanceAnomalies(c *gin.Context) {
+    date := c.DefaultQuery("date", time.Now().Format("2006-01-02"))
+    cabangID := c.Query("cabang_id")
+    lokasiID := c.Query("lokasi_id")
+
+    query := models.DB.Preload("Penempatan.Pkwt.Tad").
+        Preload("Penempatan.Pkwt.Jabatan").
+        Where("tgl_absen = ?", date)
+
+    if cabangID != "" {
+        query = query.Joins("JOIN penempatan ON penempatan.id = absensi.penempatan_id").
+            Where("penempatan.cabang_id = ?", cabangID)
+    }
+
+    if lokasiID != "" {
+        query = query.Joins("JOIN penempatan ON penempatan.id = absensi.penempatan_id").
+            Where("penempatan.lokasi_kerja_id = ?", lokasiID)
+    }
+
+    var attendances []models.Absensi
+    result := query.Find(&attendances)
+
+    if result.Error != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{
+            "error": "Gagal mengambil data absensi!",
+        })
+        return
+    }
+
+    if len(attendances) == 0 {
+        c.JSON(http.StatusOK, gin.H{
+            "message":   "Tidak ada data absensi yang ditemukan untuk tanggal: " + date,
+            "anomalies": []AnomalyDetectionResult{},
+        })
+        return
+    }
+
+    var features []AttendanceFeatures
+    employeeMap := make(map[int64]string)
+
+    for _, absen := range attendances {
+        feature := ExtractAttendanceFeatures(absen.Penempatan_id, date)
+
+        if absen.Penempatan.Pkwt.Tad.Nama != "" {
+            feature.EmployeeName = absen.Penempatan.Pkwt.Tad.Nama
+            employeeMap[absen.Penempatan_id] = absen.Penempatan.Pkwt.Tad.Nama
+        }
+
+        features = append(features, feature)
+    }
+
+    jsonData, _ := json.Marshal(features)
+    resp, err := http.Post(ML_SERVICE_URL+"/predict", "application/json", bytes.NewBuffer(jsonData))
+
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{
+            "error":   "Layanan Servis Sedang tidak tersedia!",
+            "details": err.Error(),
+        })
+        return
+    }
+    defer resp.Body.Close()
+
+    var predictions []AnomalyDetectionResult
+    if err := json.NewDecoder(resp.Body).Decode(&predictions); err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{
+            "error": "Gagal memproses respons dari Servis!",
+        })
+        return
+    }
+
+    for i := range predictions {
+        if name, ok := employeeMap[predictions[i].EmployeeID]; ok {
+            predictions[i].EmployeeName = name
+        }
+    }
+
+    anomalies := []AnomalyDetectionResult{}
+    for _, pred := range predictions {
+        if pred.IsAnomaly {
+            anomalies = append(anomalies, pred)
+        }
+    }
+
+    c.JSON(http.StatusOK, gin.H{
+        "date":            date,
+        "total_checked":   len(predictions),
+        "total_anomalies": len(anomalies),
+        "anomaly_rate":    fmt.Sprintf("%.2f%%", float64(len(anomalies))/float64(len(predictions))*100),
+        "anomalies":       anomalies,
+    })
+}
+
+// Get anomaly history for an employee
+func GetEmployeeAnomalyHistory(c *gin.Context) {
+    employeeIDStr := c.Param("id")
+    employeeID, err := strconv.ParseUint(employeeIDStr, 10, 32)
+    if err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{
+            "error": "NITAD tidak valid",
+        })
+        return
+    }
+
+    days := c.DefaultQuery("days", "30")
+    daysInt, _ := strconv.Atoi(days)
+
+    endDate := time.Now().Format("2006-01-02")
+    startDate := time.Now().AddDate(0, 0, -daysInt).Format("2006-01-02")
+
+    var penempatan models.Penempatan
+    if err := models.DB.Preload("Pkwt.Tad").
+        Preload("Pkwt.Jabatan").
+        First(&penempatan, int64(employeeID)).Error; err != nil {
+        c.JSON(http.StatusNotFound, gin.H{
+            "error": "Pegawai tidak ditemukan!",
+        })
+        return
+    }
+
+    var attendances []models.Absensi
+    result := models.DB.Where("penempatan_id = ? AND tgl_absen BETWEEN ? AND ?",
+        employeeID, startDate, endDate).
+        Order("tgl_absen DESC").
+        Find(&attendances)
+
+    if result.Error != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{
+            "error": "Gagal mengambil data absensi!",
+        })
+        return
+    }
+
+    if len(attendances) == 0 {
+        c.JSON(http.StatusOK, gin.H{
+            "employee": gin.H{
+                "id":      penempatan.Id,
+                "name":    penempatan.Pkwt.Tad.Nama,
+                "jabatan": penempatan.Pkwt.Jabatan.Nama,
+            },
+            "message": "Tidak ada data absensi ditemukan untuk pegawai ini dalam rentang tanggal tersebut.",
+            "history": []AnomalyDetectionResult{},
+        })
+        return
+    }
+
+    var features []AttendanceFeatures
+    for _, absen := range attendances {
+        feature := ExtractAttendanceFeatures(int64(employeeID), absen.Tgl_absen)
+        feature.EmployeeName = penempatan.Pkwt.Tad.Nama
+        features = append(features, feature)
+    }
+
+    jsonData, _ := json.Marshal(features)
+    resp, err := http.Post(ML_SERVICE_URL+"/predict", "application/json", bytes.NewBuffer(jsonData))
+
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{
+            "error": "Layanan Servis Sedang tidak tersedia!",
+        })
+        return
+    }
+    defer resp.Body.Close()
+
+    var predictions []AnomalyDetectionResult
+    json.NewDecoder(resp.Body).Decode(&predictions)
+
+    anomalyCount := 0
+    for _, pred := range predictions {
+        if pred.IsAnomaly {
+            anomalyCount++
+        }
+    }
+
+    c.JSON(http.StatusOK, gin.H{
+        "employee": gin.H{
+            "id":      penempatan.Id,
+            "name":    penempatan.Pkwt.Tad.Nama,
+            "jabatan": penempatan.Pkwt.Jabatan.Nama,
+        },
+        "period": gin.H{
+            "start": startDate,
+            "end":   endDate,
+            "days":  len(predictions),
+        },
+        "summary": gin.H{
+            "total_days":   len(predictions),
+            "anomalies":    anomalyCount,
+            "anomaly_rate": fmt.Sprintf("%.1f%%", float64(anomalyCount)/float64(len(predictions))*100),
+        },
+        "history": predictions,
+    })
+}
+
+// Get anomaly dashboard statistics
+func GetAnomalyDashboard(c *gin.Context) {
+    days := c.DefaultQuery("days", "7")
+    daysInt, _ := strconv.Atoi(days)
+
+    endDate := time.Now().Format("2006-01-02")
+    startDate := time.Now().AddDate(0, 0, -daysInt).Format("2006-01-02")
+
+    var totalRecords int64
+    models.DB.Model(&models.Absensi{}).
+        Where("tgl_absen BETWEEN ? AND ?", startDate, endDate).
+        Count(&totalRecords)
+
+    var uniqueEmployees int64
+    models.DB.Model(&models.Absensi{}).
+        Where("tgl_absen BETWEEN ? AND ?", startDate, endDate).
+        Distinct("penempatan_id").
+        Count(&uniqueEmployees)
+
+    c.JSON(http.StatusOK, gin.H{
+        "period": gin.H{
+            "start": startDate,
+            "end":   endDate,
+            "days":  daysInt,
+        },
+        "statistics": gin.H{
+            "total_records":    totalRecords,
+            "unique_employees": uniqueEmployees,
+        },
+        "message": "Use /detect endpoint to analyze specific dates",
+    })
+}

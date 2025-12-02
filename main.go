@@ -14,6 +14,7 @@ import (
 	"SITEKAD/controllers/lembur"
 	"SITEKAD/controllers/penugasan"
 	"SITEKAD/controllers/scheduler"
+	"SITEKAD/controllers/frauddetect"
 	"SITEKAD/models"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-contrib/cors"
@@ -56,6 +57,14 @@ func main() {
 			api.POST("/patrol/scan", penugasancontrollers.ScanCheckpointHandler)
 			api.POST("/patrol/end", penugasancontrollers.EndPatrolHandler)
 			api.POST("/cuti", cuticontrollers.CreateCutiHandler)
+
+				fraud := api.Group("/fa")
+				{
+					fraud.POST("/train", fraudcontrollers.TrainAnomalyModel)
+					fraud.GET("/detect", fraudcontrollers.DetectAttendanceAnomalies)
+					fraud.GET("/employee/:id", fraudcontrollers.GetEmployeeAnomalyHistory)
+					fraud.GET("/dashboard", fraudcontrollers.GetAnomalyDashboard)
+				}
 		}
 	}
 
