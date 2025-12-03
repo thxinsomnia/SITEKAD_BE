@@ -2,14 +2,22 @@ package cccontrollers
 
 import (
 	"SITEKAD/models"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"log"
+	"mime/multipart"
 	"net/http"
+	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
+
+
 
 func StartCleaningHandler(c *gin.Context) {
 	userData, _ := c.Get("currentUser")
@@ -94,7 +102,7 @@ func ScanCleaningLocationHandler(c *gin.Context) {
 	var existingLog models.CleaningService
 	err = models.DB.Where("ptid = ? AND cid = ?", cleaning.Ptid, checkpoint.Cid).First(&existingLog).Error
 	if err == nil {
-		c.JSON(http.StatusConflict, gin.H{"error": "Lokasi ini sudah pernah Anda scan sebelumnya dalam sesi ini"})
+		c.JSON(http.StatusConflict, gin.H{"error": "Lokasi ini sudah pernah Anda scan dalam sesi ini"})
 		return
 	}
 
@@ -114,7 +122,7 @@ func ScanCleaningLocationHandler(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"message":    "Lokasi '" + checkpoint.NamaLokasi + "' berhasil dicatat. Silakan upload foto sebelum dan sesudah cleaning",
+		"message":    "Lokasi '" + checkpoint.NamaLokasi + "' berhasil dicatat. Silakan upload foto sebelum dan sesudah",
 		"log_id":     newLog.Ccid,
 		"waktu_scan": newLog.WaktuScan,
 	})
@@ -126,56 +134,85 @@ func UploadBeforePhotoHandler(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "log_id dibutuhkan"})
 		return
 	}
-	
 
 	userData, _ := c.Get("currentUser")
 	currentUser := userData.(models.Penempatan)
 
-	var log models.CleaningService
-	err := models.DB.Preload("PengerjaanTugas").Where("ccid = ?", logID).First(&log).Error
+	var clog models.CleaningService
+	err := models.DB.Preload("PengerjaanTugas").Where("ccid = ?", logID).First(&clog).Error
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Log cleaning tidak ditemukan"})
 		return
 	}
 
-	if log.PengerjaanTugas.PenempatanId != currentUser.Id {
+	if clog.PengerjaanTugas.PenempatanId != currentUser.Id {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Anda tidak memiliki akses ke log ini"})
 		return
 	}
 
-	if log.FotoSebelum == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Foto sebelum harus diupload terlebih dahulu"})
+	// Parse multipart form with max memory 32MB
+	if err := c.Request.ParseMultipartForm(32 << 20); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Gagal parsing form"})
 		return
 	}
 
-	if log.FotoSesudah != "" {
-		c.JSON(http.StatusConflict, gin.H{"error": "Foto sesudah sudah pernah diupload untuk lokasi ini"})
+	// Get multiple files
+	form, _ := c.MultipartForm()
+	files := form.File["photos"]
+
+	if len(files) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Minimal 1 foto dibutuhkan"})
 		return
 	}
 
-	file, err := c.FormFile("photo")
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "File foto dibutuhkan"})
+	// Limit max files
+	if len(files) > 5 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Maksimal 5 foto per upload"})
 		return
 	}
 
-	ext := filepath.Ext(file.Filename)
-	filename := fmt.Sprintf("before_%s_%d%s", logID, time.Now().Unix(), ext)
-	filepath := "./uploads/cleaning/" + filename
+	var savedFilenames []string
 
-	if err := c.SaveUploadedFile(file, filepath); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menyimpan foto"})
-		return
+	// Validate and save all files
+	for i, fileHeader := range files {
+		filename, err := validateAndSavePhoto(c, fileHeader, "before", logID, i)
+		if err != nil {
+			// Delete already saved files on error
+			deleteUploadedFiles(savedFilenames)
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": fmt.Sprintf("Foto ke-%d gagal: %s", i+1, err.Error()),
+			})
+			return
+		}
+		savedFilenames = append(savedFilenames, filename)
 	}
 
-	if err := models.DB.Model(&log).Update("foto_sebelum", filename).Error; err != nil {
+	// Get existing photos if any
+	var existingPhotos []string
+	if clog.FotoSebelum != "" {
+		json.Unmarshal([]byte(clog.FotoSebelum), &existingPhotos)
+	}
+
+	// Append new photos
+	existingPhotos = append(existingPhotos, savedFilenames...)
+
+	// Convert to JSON string
+	photosJSON, _ := json.Marshal(existingPhotos)
+
+	if err := models.DB.Model(&clog).Select("foto_sebelum").Updates(map[string]interface{}{
+        "foto_sebelum": string(photosJSON),
+    }).Error; err != nil {
+		deleteUploadedFiles(savedFilenames)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menyimpan data foto"})
 		return
 	}
 
+	log.Printf("Upload berhasil: %d foto sebelum cleaning", len(savedFilenames))
+
 	c.JSON(http.StatusOK, gin.H{
-		"message":      "Foto sebelum cleaning berhasil diupload",
-		"foto_sebelum": filename,
+		"message":        "Foto sebelum cleaning berhasil diupload",
+		"foto_sebelum":   existingPhotos,
+		"total_uploaded": len(savedFilenames),
 	})
 }
 
@@ -189,41 +226,77 @@ func UploadAfterPhotoHandler(c *gin.Context) {
 	userData, _ := c.Get("currentUser")
 	currentUser := userData.(models.Penempatan)
 
-	var log models.CleaningService
-	err := models.DB.Preload("PengerjaanTugas").Where("ctid = ?", logID).First(&log).Error
+	var clog models.CleaningService
+	err := models.DB.Preload("PengerjaanTugas").Where("ccid = ?", logID).First(&clog).Error
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Log cleaning tidak ditemukan"})
-		return
+		return	
 	}
 
-	if log.PengerjaanTugas.PenempatanId != currentUser.Id {
+	if clog.PengerjaanTugas.PenempatanId != currentUser.Id {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Anda tidak memiliki akses ke log ini"})
 		return
 	}
 
-	file, err := c.FormFile("photo")
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "File foto dibutuhkan"})
+	if clog.FotoSebelum == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Foto sebelum harus diupload terlebih dahulu"})
 		return
 	}
 
-	ext := filepath.Ext(file.Filename)
-	filename := fmt.Sprintf("after_%s_%d%s", logID, time.Now().Unix(), ext)
-	filepath := "./uploads/cleaning/" + filename
-
-	if err := c.SaveUploadedFile(file, filepath); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menyimpan foto"})
+	if err := c.Request.ParseMultipartForm(32 << 20); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Gagal parsing form"})
 		return
 	}
 
-	if err := models.DB.Model(&log).Update("foto_sesudah", filename).Error; err != nil {
+	form, _ := c.MultipartForm()
+	files := form.File["photos"]
+
+	if len(files) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Minimal 1 foto dibutuhkan"})
+		return
+	}
+
+	if len(files) > 5 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Maksimal 5 foto per upload"})
+		return
+	}
+
+	var savedFilenames []string
+
+	for i, fileHeader := range files {
+		filename, err := validateAndSavePhoto(c, fileHeader, "after", logID, i)
+		if err != nil {
+			deleteUploadedFiles(savedFilenames)
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": fmt.Sprintf("Foto ke-%d gagal: %s", i+1, err.Error()),
+			})
+			return
+		}
+		savedFilenames = append(savedFilenames, filename)
+	}
+
+	var existingPhotos []string
+	if clog.FotoSesudah != "" {
+		json.Unmarshal([]byte(clog.FotoSesudah), &existingPhotos)
+	}
+
+	existingPhotos = append(existingPhotos, savedFilenames...)
+	photosJSON, _ := json.Marshal(existingPhotos)
+
+	if err := models.DB.Model(&clog).Select("foto_sesudah").Updates(map[string]interface{}{
+        "foto_sesudah": string(photosJSON),
+    }).Error; err != nil {
+		deleteUploadedFiles(savedFilenames)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menyimpan data foto"})
 		return
 	}
 
+	log.Printf("Upload berhasil: %d foto sesudah cleaning", len(savedFilenames))
+
 	c.JSON(http.StatusOK, gin.H{
-		"message":      "Foto sesudah cleaning berhasil diupload",
-		"foto_sesudah": filename,
+		"message":        "Foto sesudah cleaning berhasil diupload",
+		"foto_sesudah":   existingPhotos,
+		"total_uploaded": len(savedFilenames),
 	})
 }
 
