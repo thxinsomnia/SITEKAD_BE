@@ -1,30 +1,30 @@
 package main
 
 import (
-
+	absencontroller "SITEKAD/controllers/absen"
+	authcontroller "SITEKAD/controllers/auth"
+	cccontrollers "SITEKAD/controllers/cleaningservice"
+	cuticontrollers "SITEKAD/controllers/cuti"
+	lemburcontrollers "SITEKAD/controllers/lembur"
+	lokasicontroller "SITEKAD/controllers/lokasi"
+	penugasancontrollers "SITEKAD/controllers/penugasan"
+	profilecontroller "SITEKAD/controllers/profile"
+	"SITEKAD/controllers/scheduler"
+	"SITEKAD/middlewares"
+	"SITEKAD/models"
 	"log"
 	"os"
 	"time"
-	"SITEKAD/middlewares"
-	"SITEKAD/controllers/absen"
-	"SITEKAD/controllers/auth"
-	"SITEKAD/controllers/cuti"
-	"SITEKAD/controllers/lokasi"
-	"SITEKAD/controllers/profile"
-	"SITEKAD/controllers/lembur"
-	"SITEKAD/controllers/penugasan"
-	"SITEKAD/controllers/scheduler"
-	"SITEKAD/models"
-	"github.com/gin-gonic/gin"
+
 	"github.com/gin-contrib/cors"
+	"github.com/gin-gonic/gin"
 	"github.com/go-co-op/gocron"
 )
-
 
 func main() {
 	models.ConnectDatabase()
 	router := gin.Default()
-	router.MaxMultipartMemory = 8 << 20 
+	router.MaxMultipartMemory = 8 << 20
 
 	//Cors
 	router.Use(cors.New(cors.Config{
@@ -40,8 +40,8 @@ func main() {
 		v1.POST("/aktivasi", authcontroller.Aktivasi)
 		v1.GET("/logout", authcontroller.Logout)
 
-			api := v1.Group("/api")
-			api.Use(middlewares.AuthMiddleware())
+		api := v1.Group("/api")
+		api.Use(middlewares.AuthMiddleware())
 		{
 			api.POST("/absensi", absencontroller.ScanAbsensiHandler)
 			api.GET("/pcheck", absencontroller.PrediksiCheckout)
@@ -56,6 +56,11 @@ func main() {
 			api.POST("/patrol/scan", penugasancontrollers.ScanCheckpointHandler)
 			api.POST("/patrol/end", penugasancontrollers.EndPatrolHandler)
 			api.POST("/cuti", cuticontrollers.CreateCutiHandler)
+			api.POST("/cc/start", cccontrollers.StartCleaningHandler)
+			api.POST("/cc/scan", cccontrollers.ScanCleaningLocationHandler)
+			api.POST("/cc/uploadbf", cccontrollers.UploadBeforePhotoHandler)
+			api.POST("/cc/uploadaf", cccontrollers.UploadAfterPhotoHandler)
+			api.POST("/cc/end", cccontrollers.EndCleaningHandler)
 		}
 	}
 
