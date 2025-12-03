@@ -18,29 +18,81 @@ import (
 )
 
 
+func validateAndSavePhoto(c *gin.Context, fileHeader *multipart.FileHeader, prefix string, logID string, index int) (string, error) {
+	log.Printf("File ditemukan: %s (%d bytes)", fileHeader.Filename, fileHeader.Size)
+	file, err := fileHeader.Open()
+	if err != nil {
+		return "", fmt.Errorf("Terjadi Error Saat Membuka File!")
+	}
+	defer file.Close()
+
+	ext := filepath.Ext(fileHeader.Filename)
+	allowedExts := map[string]bool{".jpg": true, ".jpeg": true, ".png": true}
+	if !allowedExts[ext] {
+		return "", fmt.Errorf("Format File Tidak Valid! Gunakan File Berformat jpg, jpeg atau png!")
+	}
+
+	buffer := make([]byte, 512)
+	_, err = file.Read(buffer)
+	if err != nil {
+		return "", fmt.Errorf("Gagal Membaca File!")
+	}
+	_, err = file.Seek(0, 0)
+	if err != nil {
+		return "", fmt.Errorf("Terjadi Error Tak Terduga Pada File!")
+	}
+
+	mimeType := http.DetectContentType(buffer)
+	allowedMimes := map[string]bool{
+		"image/jpeg": true,
+		"image/png":  true,
+	}
+	if !allowedMimes[mimeType] {
+		return "", fmt.Errorf("tipe konten file tidak valid: %s", mimeType)
+	}
+	maxSize := int64(5 * 1024 * 1024) 
+	if fileHeader.Size > maxSize {
+		return "", fmt.Errorf("ukuran file terlalu besar. Maksimal 5MB per foto")
+	}
+
+	extension := filepath.Ext(fileHeader.Filename)
+	stringToHash := fmt.Sprintf("%d-%s-%s-%d", time.Now().UnixNano(), prefix, logID, index)
+	hasher := sha256.New()
+	hasher.Write([]byte(stringToHash))
+	hashedFilename := hex.EncodeToString(hasher.Sum(nil)) + extension
+	uploadDir := "./uploads/cleaning/"
+	destinationPath := filepath.Join(uploadDir, hashedFilename)
+	if err := c.SaveUploadedFile(fileHeader, destinationPath); err != nil {
+		return "", fmt.Errorf("gagal menyimpan file")
+	}
+	return hashedFilename, nil
+}
+
+func deleteUploadedFiles(filenames []string) {
+	uploadDir := "./uploads/cleaning/"
+	for _, filename := range filenames {
+		os.Remove(filepath.Join(uploadDir, filename))
+	}
+}
 
 func StartCleaningHandler(c *gin.Context) {
 	userData, _ := c.Get("currentUser")
 	currentUser := userData.(models.Penempatan)
-
 	var activeCleaning models.PengerjaanTugas
 	batasWaktu := time.Now().Add(-8 * time.Hour)
-
 	err := models.DB.Where(
 		"penempatan_id = ? AND status = ? AND waktu_mulai > ?",
 		currentUser.Id,
 		"berlangsung",
 		batasWaktu,
 	).First(&activeCleaning).Error
-
 	if err == nil {
 		c.JSON(http.StatusConflict, gin.H{
-			"error":       "Anda sudah memiliki sesi cleaning yang sedang berlangsung",
+			"error":       "Anda Sudah Memiliki Sesi Yang Sedang Berlangsung!",
 			"cleaning_id": activeCleaning.Ptid,
 		})
 		return
 	}
-
 	if err != gorm.ErrRecordNotFound {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal memeriksa sesi cleaning"})
 		return
@@ -49,7 +101,6 @@ func StartCleaningHandler(c *gin.Context) {
 	now := time.Now()
 	tanggalHariIni := now.Format("2006-01-02")
 	jamSaatIni := now.Format("15:04:05")
-
 	newCleaning := models.PengerjaanTugas{
 		PenempatanId: currentUser.Id,
 		WaktuMulai:   tanggalHariIni + " " + jamSaatIni,
@@ -60,7 +111,6 @@ func StartCleaningHandler(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal memulai sesi cleaning"})
 		return
 	}
-
 	c.JSON(http.StatusCreated, gin.H{
 		"message":     "Sesi cleaning berhasil dimulai",
 		"cleaning_id": newCleaning.Ptid,
@@ -78,10 +128,8 @@ func ScanCleaningLocationHandler(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Input tidak valid: " + err.Error()})
 		return
 	}
-
 	userData, _ := c.Get("currentUser")
 	currentUser := userData.(models.Penempatan)
-
 	var cleaning models.PengerjaanTugas
 	err := models.DB.Where(
 		"ptid = ? AND penempatan_id = ? AND status = ?",
@@ -105,11 +153,9 @@ func ScanCleaningLocationHandler(c *gin.Context) {
 		c.JSON(http.StatusConflict, gin.H{"error": "Lokasi ini sudah pernah Anda scan dalam sesi ini"})
 		return
 	}
-
 	now := time.Now()
 	tanggalHariIni := now.Format("2006-01-02")
 	jamSaatIni := now.Format("15:04:05")
-
 	newLog := models.CleaningService{
 		Ptid:      cleaning.Ptid,
 		Cid:       checkpoint.Cid,
@@ -137,7 +183,6 @@ func UploadBeforePhotoHandler(c *gin.Context) {
 
 	userData, _ := c.Get("currentUser")
 	currentUser := userData.(models.Penempatan)
-
 	var clog models.CleaningService
 	err := models.DB.Preload("PengerjaanTugas").Where("ccid = ?", logID).First(&clog).Error
 	if err != nil {
@@ -150,34 +195,27 @@ func UploadBeforePhotoHandler(c *gin.Context) {
 		return
 	}
 
-	// Parse multipart form with max memory 32MB
 	if err := c.Request.ParseMultipartForm(32 << 20); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Gagal parsing form"})
 		return
 	}
 
-	// Get multiple files
 	form, _ := c.MultipartForm()
 	files := form.File["photos"]
-
 	if len(files) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Minimal 1 foto dibutuhkan"})
 		return
 	}
 
-	// Limit max files
 	if len(files) > 5 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Maksimal 5 foto per upload"})
 		return
 	}
 
 	var savedFilenames []string
-
-	// Validate and save all files
 	for i, fileHeader := range files {
 		filename, err := validateAndSavePhoto(c, fileHeader, "before", logID, i)
 		if err != nil {
-			// Delete already saved files on error
 			deleteUploadedFiles(savedFilenames)
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error": fmt.Sprintf("Foto ke-%d gagal: %s", i+1, err.Error()),
@@ -187,18 +225,13 @@ func UploadBeforePhotoHandler(c *gin.Context) {
 		savedFilenames = append(savedFilenames, filename)
 	}
 
-	// Get existing photos if any
 	var existingPhotos []string
 	if clog.FotoSebelum != "" {
 		json.Unmarshal([]byte(clog.FotoSebelum), &existingPhotos)
 	}
 
-	// Append new photos
 	existingPhotos = append(existingPhotos, savedFilenames...)
-
-	// Convert to JSON string
 	photosJSON, _ := json.Marshal(existingPhotos)
-
 	if err := models.DB.Model(&clog).Select("foto_sebelum").Updates(map[string]interface{}{
         "foto_sebelum": string(photosJSON),
     }).Error; err != nil {
@@ -208,7 +241,6 @@ func UploadBeforePhotoHandler(c *gin.Context) {
 	}
 
 	log.Printf("Upload berhasil: %d foto sebelum cleaning", len(savedFilenames))
-
 	c.JSON(http.StatusOK, gin.H{
 		"message":        "Foto sebelum cleaning berhasil diupload",
 		"foto_sebelum":   existingPhotos,
@@ -225,7 +257,6 @@ func UploadAfterPhotoHandler(c *gin.Context) {
 
 	userData, _ := c.Get("currentUser")
 	currentUser := userData.(models.Penempatan)
-
 	var clog models.CleaningService
 	err := models.DB.Preload("PengerjaanTugas").Where("ccid = ?", logID).First(&clog).Error
 	if err != nil {
@@ -250,7 +281,6 @@ func UploadAfterPhotoHandler(c *gin.Context) {
 
 	form, _ := c.MultipartForm()
 	files := form.File["photos"]
-
 	if len(files) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Minimal 1 foto dibutuhkan"})
 		return
@@ -262,7 +292,6 @@ func UploadAfterPhotoHandler(c *gin.Context) {
 	}
 
 	var savedFilenames []string
-
 	for i, fileHeader := range files {
 		filename, err := validateAndSavePhoto(c, fileHeader, "after", logID, i)
 		if err != nil {
@@ -282,7 +311,6 @@ func UploadAfterPhotoHandler(c *gin.Context) {
 
 	existingPhotos = append(existingPhotos, savedFilenames...)
 	photosJSON, _ := json.Marshal(existingPhotos)
-
 	if err := models.DB.Model(&clog).Select("foto_sesudah").Updates(map[string]interface{}{
         "foto_sesudah": string(photosJSON),
     }).Error; err != nil {
@@ -292,7 +320,6 @@ func UploadAfterPhotoHandler(c *gin.Context) {
 	}
 
 	log.Printf("Upload berhasil: %d foto sesudah cleaning", len(savedFilenames))
-
 	c.JSON(http.StatusOK, gin.H{
 		"message":        "Foto sesudah cleaning berhasil diupload",
 		"foto_sesudah":   existingPhotos,
@@ -313,7 +340,6 @@ func EndCleaningHandler(c *gin.Context) {
 
 	userData, _ := c.Get("currentUser")
 	currentUser := userData.(models.Penempatan)
-
 	var cleaning models.PengerjaanTugas
 	err := models.DB.Where(
 		"ptid = ? AND penempatan_id = ? AND status = ?",
@@ -333,16 +359,14 @@ func EndCleaningHandler(c *gin.Context) {
 	tanggalHariIni := now.Format("2006-01-02")
 	jamSaatIni := now.Format("15:04:05")
 	nowString := tanggalHariIni + " " + jamSaatIni
-
 	result := models.DB.Model(&cleaning).Updates(models.PengerjaanTugas{
 		WaktuSelesai: &nowString,
 		Status:       "selesai",
 	})
 
 	if result.Error != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menyelesaikan sesi cleaning"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menyelesaikan sesi cleaning!"})
 		return
 	}
-
 	c.JSON(http.StatusOK, gin.H{"message": "Sesi cleaning berhasil diselesaikan"})
 }
