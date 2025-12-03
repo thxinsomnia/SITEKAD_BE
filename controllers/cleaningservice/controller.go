@@ -22,24 +22,24 @@ func validateAndSavePhoto(c *gin.Context, fileHeader *multipart.FileHeader, pref
 	log.Printf("File ditemukan: %s (%d bytes)", fileHeader.Filename, fileHeader.Size)
 	file, err := fileHeader.Open()
 	if err != nil {
-		return "", fmt.Errorf("Terjadi Error Saat Membuka File!")
+		return "", fmt.Errorf("terjadi error saat membuka file!")
 	}
 	defer file.Close()
 
 	ext := filepath.Ext(fileHeader.Filename)
 	allowedExts := map[string]bool{".jpg": true, ".jpeg": true, ".png": true}
 	if !allowedExts[ext] {
-		return "", fmt.Errorf("Format File Tidak Valid! Gunakan File Berformat jpg, jpeg atau png!")
+		return "", fmt.Errorf("format file tidak valid! Gunakan file berformat jpg, jpeg atau png!")
 	}
 
 	buffer := make([]byte, 512)
 	_, err = file.Read(buffer)
 	if err != nil {
-		return "", fmt.Errorf("Gagal Membaca File!")
+		return "", fmt.Errorf("gagal membaca file!")
 	}
 	_, err = file.Seek(0, 0)
 	if err != nil {
-		return "", fmt.Errorf("Terjadi Error Tak Terduga Pada File!")
+		return "", fmt.Errorf("terjadi error tak terduga pada file!")
 	}
 
 	mimeType := http.DetectContentType(buffer)
