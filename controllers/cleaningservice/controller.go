@@ -101,7 +101,8 @@ func StartCleaningHandler(c *gin.Context) {
 		return
 	}
 
-	now := time.Now()
+	loc, _ := time.LoadLocation("Asia/Jakarta")
+	now := time.Now().In(loc)
 	tanggalHariIni := now.Format("2006-01-02")
 	jamSaatIni := now.Format("15:04:05")
 	newCleaning := models.PengerjaanTugas{
@@ -177,7 +178,8 @@ func ScanCleaningLocationHandler(c *gin.Context) {
 		return
 	}
 
-	now := time.Now()
+	loc, _ := time.LoadLocation("Asia/Jakarta")
+	now := time.Now().In(loc)
 	tanggalHariIni := now.Format("2006-01-02")
 	jamSaatIni := now.Format("15:04:05")
 	newLog := models.CleaningService{
@@ -209,16 +211,18 @@ func UploadBeforePhotoHandler(c *gin.Context) {
 	userData, _ := c.Get("currentUser")
 	currentUser := userData.(models.Penempatan)
 	var clog models.CleaningService
-	err := models.DB.Preload("PengerjaanTugas").Where("ccid = ?", logID).First(&clog).Error
+	err := models.DB.Where("ccid = ?", logID).First(&clog).Error
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Log cleaning tidak ditemukan"})
 		return
 	}
 
-	if clog.PengerjaanTugas.PenempatanId != currentUser.Id {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Anda tidak memiliki akses ke log ini"})
-		return
-	}
+	var cleaning models.PengerjaanTugas
+    err = models.DB.Where("ptid = ? AND penempatan_id = ?", clog.Ptid, currentUser.Id).First(&cleaning).Error
+    if err != nil {
+        c.JSON(http.StatusForbidden, gin.H{"error": "Anda tidak memiliki akses ke log ini"})
+        return
+    }
 
 	if clog.FotoSebelum != "" {
 		c.JSON(http.StatusConflict, gin.H{"error": "Foto sebelum cleaning sudah diupload untuk lokasi ini"})
@@ -290,16 +294,18 @@ func UploadAfterPhotoHandler(c *gin.Context) {
 	userData, _ := c.Get("currentUser")
 	currentUser := userData.(models.Penempatan)
 	var clog models.CleaningService
-	err := models.DB.Preload("PengerjaanTugas").Where("ccid = ?", logID).First(&clog).Error
+	err := models.DB.Where("ccid = ?", logID).First(&clog).Error
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Log cleaning tidak ditemukan"})
 		return
 	}
 
-	if clog.PengerjaanTugas.PenempatanId != currentUser.Id {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Anda tidak memiliki akses ke log ini"})
-		return
-	}
+	var cleaning models.PengerjaanTugas
+    err = models.DB.Where("ptid = ? AND penempatan_id = ?", clog.Ptid, currentUser.Id).First(&cleaning).Error
+    if err != nil {
+        c.JSON(http.StatusForbidden, gin.H{"error": "Anda tidak memiliki akses ke log ini"})
+        return
+    }
 
 	if clog.FotoSebelum == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Foto cleaning harus diupload terlebih dahulu"})
@@ -450,7 +456,8 @@ func EndCleaningHandler(c *gin.Context) {
 		return
 	}
 
-	now := time.Now()
+	loc, _ := time.LoadLocation("Asia/Jakarta")
+	now := time.Now().In(loc)
 	tanggalHariIni := now.Format("2006-01-02")
 	jamSaatIni := now.Format("15:04:05")
 	nowString := tanggalHariIni + " " + jamSaatIni
