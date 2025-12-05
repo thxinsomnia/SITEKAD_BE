@@ -1,4 +1,4 @@
-package cccontrollers
+package cccontroller
 
 import (
 	"SITEKAD/models"
@@ -17,29 +17,28 @@ import (
 	"gorm.io/gorm"
 )
 
-
 func validateAndSavePhoto(c *gin.Context, fileHeader *multipart.FileHeader, prefix string, logID string, index int) (string, error) {
 	log.Printf("File ditemukan: %s (%d bytes)", fileHeader.Filename, fileHeader.Size)
 	file, err := fileHeader.Open()
 	if err != nil {
-		return "", fmt.Errorf("terjadi error saat membuka file!")
+		return "", fmt.Errorf("gagal membuka file")
 	}
 	defer file.Close()
-
 	ext := filepath.Ext(fileHeader.Filename)
 	allowedExts := map[string]bool{".jpg": true, ".jpeg": true, ".png": true}
 	if !allowedExts[ext] {
-		return "", fmt.Errorf("format file tidak valid! Gunakan file berformat jpg, jpeg atau png!")
+		return "", fmt.Errorf("format file tidak diizinkan. Hanya file jpg, jpeg, png yang diizinkan")
 	}
 
 	buffer := make([]byte, 512)
 	_, err = file.Read(buffer)
 	if err != nil {
-		return "", fmt.Errorf("gagal membaca file!")
+		return "", fmt.Errorf("gagal membaca file untuk validasi")
 	}
+
 	_, err = file.Seek(0, 0)
 	if err != nil {
-		return "", fmt.Errorf("terjadi error tak terduga pada file!")
+		return "", fmt.Errorf("gagal mereset file reader")
 	}
 
 	mimeType := http.DetectContentType(buffer)
@@ -47,10 +46,12 @@ func validateAndSavePhoto(c *gin.Context, fileHeader *multipart.FileHeader, pref
 		"image/jpeg": true,
 		"image/png":  true,
 	}
+
 	if !allowedMimes[mimeType] {
 		return "", fmt.Errorf("tipe konten file tidak valid: %s", mimeType)
 	}
-	maxSize := int64(5 * 1024 * 1024) 
+
+	maxSize := int64(5 * 1024 * 1024) // 5MB
 	if fileHeader.Size > maxSize {
 		return "", fmt.Errorf("ukuran file terlalu besar. Maksimal 5MB per foto")
 	}
@@ -60,16 +61,17 @@ func validateAndSavePhoto(c *gin.Context, fileHeader *multipart.FileHeader, pref
 	hasher := sha256.New()
 	hasher.Write([]byte(stringToHash))
 	hashedFilename := hex.EncodeToString(hasher.Sum(nil)) + extension
-	uploadDir := "./uploads/cleaning/"
+	uploadDir := os.Getenv("CLEANING_PATH")
 	destinationPath := filepath.Join(uploadDir, hashedFilename)
 	if err := c.SaveUploadedFile(fileHeader, destinationPath); err != nil {
 		return "", fmt.Errorf("gagal menyimpan file")
 	}
+
 	return hashedFilename, nil
 }
 
 func deleteUploadedFiles(filenames []string) {
-	uploadDir := "./uploads/cleaning/"
+	uploadDir := os.Getenv("CLEANING_PATH")
 	for _, filename := range filenames {
 		os.Remove(filepath.Join(uploadDir, filename))
 	}
@@ -88,11 +90,12 @@ func StartCleaningHandler(c *gin.Context) {
 	).First(&activeCleaning).Error
 	if err == nil {
 		c.JSON(http.StatusConflict, gin.H{
-			"error":       "Anda Sudah Memiliki Sesi Yang Sedang Berlangsung!",
+			"error":       "Anda sudah memiliki sesi cleaning yang sedang berlangsung",
 			"cleaning_id": activeCleaning.Ptid,
 		})
 		return
 	}
+
 	if err != gorm.ErrRecordNotFound {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal memeriksa sesi cleaning"})
 		return
@@ -111,6 +114,7 @@ func StartCleaningHandler(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal memulai sesi cleaning"})
 		return
 	}
+
 	c.JSON(http.StatusCreated, gin.H{
 		"message":     "Sesi cleaning berhasil dimulai",
 		"cleaning_id": newCleaning.Ptid,
@@ -128,6 +132,7 @@ func ScanCleaningLocationHandler(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Input tidak valid: " + err.Error()})
 		return
 	}
+
 	userData, _ := c.Get("currentUser")
 	currentUser := userData.(models.Penempatan)
 	var cleaning models.PengerjaanTugas
@@ -138,6 +143,24 @@ func ScanCleaningLocationHandler(c *gin.Context) {
 
 	if err != nil {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Sesi cleaning tidak valid atau bukan milik Anda"})
+		return
+	}
+
+	var incompleteLog models.CleaningService
+	err = models.DB.Where(
+		"ptid = ? AND (foto_sebelum = '' OR foto_sebelum IS NULL OR foto_sesudah = '' OR foto_sesudah IS NULL)",
+		cleaning.Ptid,
+	).First(&incompleteLog).Error
+	if err == nil {
+		var checkpoint models.Checkpoint
+		models.DB.Where("cid = ?", incompleteLog.Cid).First(&checkpoint)
+		c.JSON(http.StatusConflict, gin.H{
+			"error":                 "Anda harus menyelesaikan foto sebelum dan sesudah untuk lokasi '" + checkpoint.NamaLokasi + "' terlebih dahulu!",
+			"incomplete_log_id":     incompleteLog.Ccid,
+			"nama_lokasi":           checkpoint.NamaLokasi,
+			"foto_sebelum_cleaning": incompleteLog.FotoSebelum != "",
+			"foto_sesudah_cleaning": incompleteLog.FotoSesudah != "",
+		})
 		return
 	}
 
@@ -153,6 +176,7 @@ func ScanCleaningLocationHandler(c *gin.Context) {
 		c.JSON(http.StatusConflict, gin.H{"error": "Lokasi ini sudah pernah Anda scan dalam sesi ini"})
 		return
 	}
+
 	now := time.Now()
 	tanggalHariIni := now.Format("2006-01-02")
 	jamSaatIni := now.Format("15:04:05")
@@ -168,9 +192,10 @@ func ScanCleaningLocationHandler(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"message":    "Lokasi '" + checkpoint.NamaLokasi + "' berhasil dicatat. Silakan upload foto sebelum dan sesudah",
-		"log_id":     newLog.Ccid,
-		"waktu_scan": newLog.WaktuScan,
+		"message":     "Lokasi '" + checkpoint.NamaLokasi + "' berhasil dicatat. Silakan upload foto sebelum cleaning dari kamera",
+		"log_id":      newLog.Ccid,
+		"waktu_scan":  newLog.WaktuScan,
+		"nama_lokasi": checkpoint.NamaLokasi,
 	})
 }
 
@@ -195,6 +220,11 @@ func UploadBeforePhotoHandler(c *gin.Context) {
 		return
 	}
 
+	if clog.FotoSebelum != "" {
+		c.JSON(http.StatusConflict, gin.H{"error": "Foto sebelum cleaning sudah diupload untuk lokasi ini"})
+		return
+	}
+
 	if err := c.Request.ParseMultipartForm(32 << 20); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Gagal parsing form"})
 		return
@@ -203,12 +233,11 @@ func UploadBeforePhotoHandler(c *gin.Context) {
 	form, _ := c.MultipartForm()
 	files := form.File["photos"]
 	if len(files) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Minimal 1 foto dibutuhkan"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Minimal 1 foto dibutuhkan!"})
 		return
 	}
-
-	if len(files) > 5 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Maksimal 5 foto per upload"})
+	if len(files) > 3 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Maksimal 3 foto yang diizinkan!"})
 		return
 	}
 
@@ -233,18 +262,21 @@ func UploadBeforePhotoHandler(c *gin.Context) {
 	existingPhotos = append(existingPhotos, savedFilenames...)
 	photosJSON, _ := json.Marshal(existingPhotos)
 	if err := models.DB.Model(&clog).Select("foto_sebelum").Updates(map[string]interface{}{
-        "foto_sebelum": string(photosJSON),
-    }).Error; err != nil {
+		"foto_sebelum": string(photosJSON),
+	}).Error; err != nil {
 		deleteUploadedFiles(savedFilenames)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menyimpan data foto"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menyimpan data foto!"})
 		return
 	}
 
 	log.Printf("Upload berhasil: %d foto sebelum cleaning", len(savedFilenames))
+	var checkpoint models.Checkpoint
+	models.DB.Where("cid = ?", clog.Cid).First(&checkpoint)
 	c.JSON(http.StatusOK, gin.H{
-		"message":        "Foto sebelum cleaning berhasil diupload",
-		"foto_sebelum":   existingPhotos,
-		"total_uploaded": len(savedFilenames),
+		"message":      "Foto cleaning berhasil diupload",
+		"foto_sebelum": existingPhotos,
+		"jumlah_foto":  len(savedFilenames),
+		"nama_lokasi":  checkpoint.NamaLokasi,
 	})
 }
 
@@ -261,7 +293,7 @@ func UploadAfterPhotoHandler(c *gin.Context) {
 	err := models.DB.Preload("PengerjaanTugas").Where("ccid = ?", logID).First(&clog).Error
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Log cleaning tidak ditemukan"})
-		return	
+		return
 	}
 
 	if clog.PengerjaanTugas.PenempatanId != currentUser.Id {
@@ -270,7 +302,12 @@ func UploadAfterPhotoHandler(c *gin.Context) {
 	}
 
 	if clog.FotoSebelum == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Foto sebelum harus diupload terlebih dahulu"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Foto cleaning harus diupload terlebih dahulu"})
+		return
+	}
+
+	if clog.FotoSesudah != "" {
+		c.JSON(http.StatusConflict, gin.H{"error": "Foto cleaning sudah diupload untuk lokasi ini"})
 		return
 	}
 
@@ -286,8 +323,8 @@ func UploadAfterPhotoHandler(c *gin.Context) {
 		return
 	}
 
-	if len(files) > 5 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Maksimal 5 foto per upload"})
+	if len(files) > 3 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Maksimal 3 foto yang diizinkan!"})
 		return
 	}
 
@@ -312,18 +349,64 @@ func UploadAfterPhotoHandler(c *gin.Context) {
 	existingPhotos = append(existingPhotos, savedFilenames...)
 	photosJSON, _ := json.Marshal(existingPhotos)
 	if err := models.DB.Model(&clog).Select("foto_sesudah").Updates(map[string]interface{}{
-        "foto_sesudah": string(photosJSON),
-    }).Error; err != nil {
+		"foto_sesudah": string(photosJSON),
+	}).Error; err != nil {
 		deleteUploadedFiles(savedFilenames)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menyimpan data foto"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menyimpan data foto!"})
 		return
 	}
 
 	log.Printf("Upload berhasil: %d foto sesudah cleaning", len(savedFilenames))
+	var checkpoint models.Checkpoint
+	models.DB.Where("cid = ?", clog.Cid).First(&checkpoint)
 	c.JSON(http.StatusOK, gin.H{
-		"message":        "Foto sesudah cleaning berhasil diupload",
-		"foto_sesudah":   existingPhotos,
-		"total_uploaded": len(savedFilenames),
+		"nama_lokasi": checkpoint.NamaLokasi,
+		"message":     "Foto cleaning berhasil diupload. Lokasi ini selesai silakan lanjut ke lokasi berikutnya!",
+		"file_foto":   existingPhotos,
+		"jumlah_foto": len(savedFilenames),
+	})
+}
+
+func GetIncompleteLocationHandler(c *gin.Context) {
+	userData, _ := c.Get("currentUser")
+	currentUser := userData.(models.Penempatan)
+	var cleaning models.PengerjaanTugas
+	err := models.DB.Where(
+		"penempatan_id = ? AND status = ?",
+		currentUser.Id, "berlangsung",
+	).First(&cleaning).Error
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Tidak ada sesi cleaning yang aktif!"})
+		return
+	}
+
+	var incompleteLog models.CleaningService
+	err = models.DB.Where(
+		"ptid = ? AND (foto_sebelum = '' OR foto_sebelum IS NULL OR foto_sesudah = '' OR foto_sesudah IS NULL)",
+		cleaning.Ptid,
+	).First(&incompleteLog).Error
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"has_incomplete": false,
+			"message":        "Tidak ada lokasi yang belum selesai",
+		})
+		return
+	}
+
+	var checkpoint models.Checkpoint
+	models.DB.Where("cid = ?", incompleteLog.Cid).First(&checkpoint)
+	c.JSON(http.StatusOK, gin.H{
+		"has_incomplete":        true,
+		"log_id":                incompleteLog.Ccid,
+		"nama_lokasi":           checkpoint.NamaLokasi,
+		"foto_sebelum_cleaning": incompleteLog.FotoSebelum != "",
+		"foto_sesudah_cleaning": incompleteLog.FotoSesudah != "",
+		"next_action": func() string {
+			if incompleteLog.FotoSebelum == "" {
+				return "upload_before_photo"
+			}
+			return "upload_after_photo"
+		}(),
 	})
 }
 
@@ -345,13 +428,25 @@ func EndCleaningHandler(c *gin.Context) {
 		"ptid = ? AND penempatan_id = ? AND status = ?",
 		payload.CleaningID, currentUser.Id, "berlangsung",
 	).First(&cleaning).Error
-
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Tidak ada sesi cleaning aktif yang cocok untuk diakhiri"})
+			c.JSON(http.StatusNotFound, gin.H{"error": "Tidak ada sesi cleaning aktif yang cocok untuk diakhiri!"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mencari sesi cleaning"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mencari sesi cleaning!"})
+		return
+	}
+
+	var incompleteCount int64
+	models.DB.Model(&models.CleaningService{}).Where(
+		"ptid = ? AND (foto_sebelum = '' OR foto_sebelum IS NULL OR foto_sesudah = '' OR foto_sesudah IS NULL)",
+		cleaning.Ptid,
+	).Count(&incompleteCount)
+
+	if incompleteCount > 0 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": fmt.Sprintf("Masih ada %d lokasi yang belum selesai (foto sebelum/sesudah cleaning belum lengkap)", incompleteCount),
+		})
 		return
 	}
 
@@ -363,10 +458,12 @@ func EndCleaningHandler(c *gin.Context) {
 		WaktuSelesai: &nowString,
 		Status:       "selesai",
 	})
-
 	if result.Error != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menyelesaikan sesi cleaning!"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menyelesaikan sesi cleaning"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "Sesi cleaning berhasil diselesaikan"})
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Sesi cleaning berhasil diselesaikan",
+	})
 }
