@@ -7,6 +7,7 @@ type CekTugas struct {
 	Ptid      int64 `gorm:"type bigint" json:"ptid"`
 	Cid       int64 `gorm:"type bigint" json:"cid"`
 	WaktuScan string `gorm:"type timestamp" json:"waktu_scan"`
+	Foto	  string `gorm:"type text" json:"foto"`
 	CreatedAt time.Time `gorm:"type timestamp" json:"created_at"`
 }
 

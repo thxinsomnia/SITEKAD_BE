@@ -44,7 +44,6 @@ func main() {
 		api.Use(middlewares.AuthMiddleware())
 		{
 			api.POST("/absensi", absencontroller.ScanAbsensiHandler)
-			api.GET("/pcheck", absencontroller.PrediksiCheckout)
 			api.GET("/histori", absencontroller.GetAllAbsen)
 			api.GET("/lokasi", lokasicontroller.GetAllLokasi)
 			api.GET("/uhistori", absencontroller.GetHistoryUser)
@@ -54,6 +53,7 @@ func main() {
 			api.GET("/lembur/history", lemburcontrollers.GetHistoryLembur)
 			api.POST("/patrol/start", penugasancontrollers.StartPatrolHandler)
 			api.POST("/patrol/scan", penugasancontrollers.ScanCheckpointHandler)
+			api.POST("/patrol/upload", penugasancontrollers.UploadPatrolPhotoHandler)
 			api.POST("/patrol/end", penugasancontrollers.EndPatrolHandler)
 			api.POST("/cuti", cuticontrollers.CreateCutiHandler)
 			api.POST("/cc/start", cccontrollers.StartCleaningHandler)
