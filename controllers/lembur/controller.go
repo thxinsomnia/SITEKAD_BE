@@ -22,6 +22,11 @@ func handleFileUpload(c *gin.Context) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("file SPL wajib diunggah")
 	}
+	const maxFileSize = 5 * 1024 * 1024 
+	if fileHeader.Size > maxFileSize {
+		c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "Ukuran file terlalu besar! Maksimal 5MB"})
+		return "", fmt.Errorf("ukuran file melebihi batas maksimal 5MB")
+	}
 
 	file, err := fileHeader.Open()
 	if err != nil {
