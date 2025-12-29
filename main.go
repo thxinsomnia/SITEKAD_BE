@@ -65,6 +65,14 @@ func main() {
 					fraud.GET("/employee/:id", fraudcontrollers.GetEmployeeAnomalyHistory)
 					fraud.GET("/dashboard", fraudcontrollers.GetAnomalyDashboard)
 				}
+
+				fakegps := api.Group("/fg")
+				{
+					fakegps.POST("/train", fraudcontrollers.LatihModelDeteksi)
+					fakegps.GET("/detect", fraudcontrollers.DeteksiFakeGps)
+					fakegps.GET("/dashboard", fraudcontrollers.GetFakeGpsDashboard)
+					fakegps.GET("/health", fraudcontrollers.CekStatusModel)
+				}
 		}
 	}
 

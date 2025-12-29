@@ -5,11 +5,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"log"
 	"net/http"
+	"os"
 	"path/filepath"
 	"time"
-	"os"
-	"log"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -18,15 +19,20 @@ func CutiFileUpload(c *gin.Context) (string, error) {
 	if err != nil {
 		log.Printf("FormFile error: %v", err)
 		if err == http.ErrMissingFile {
-			return "", nil 
+			return "", nil
 		}
 		return "", fmt.Errorf("gagal membaca form file: %w", err)
 	}
 	log.Printf("File ditemukan: %s (%d bytes)", fileHeader.Filename, fileHeader.Size)
+	const maxFileSize = 5 * 1024 * 1024 
+	if fileHeader.Size > maxFileSize {
+		c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "Ukuran file terlalu besar! Maksimal 5MB"})
+		return "", fmt.Errorf("ukuran file melebihi batas maksimal 5MB")
+	}
 
 	// if err != nil {
 	// 	if err == http.ErrMissingFile {
-	// 		return "", nil 
+	// 		return "", nil
 	// 	}
 	// 	return "", fmt.Errorf("gagal membaca form file: %w", err)
 	// }
@@ -73,7 +79,7 @@ func CutiFileUpload(c *gin.Context) (string, error) {
 
 	uploadPath := os.Getenv("CUTI_PATH")
 	if uploadPath == "" {
-		uploadPath = "uploads/spl" 
+		uploadPath = "uploads/spl"
 	}
 
 	destinationPath := filepath.Join(uploadPath, hashedFilename)
@@ -142,8 +148,8 @@ func CreateCutiHandler(c *gin.Context) {
 		Cabang_id:     currentUser.Cabang_id,
 		Lokasi_id:     currentUser.Lokasi_kerja_id,
 		Jabatan_id:    currentUser.Jabatan_id,
-		TglAwal:      TanggalAwal,
-		TglAkhir:     TanggalAkhir,
+		TglAwal:       TanggalAwal,
+		TglAkhir:      TanggalAkhir,
 		Alasan:        alasan,
 		Keterangan:    keterangan,
 		Suket:         hashedFilename,
@@ -164,7 +170,7 @@ func CreateCutiHandler(c *gin.Context) {
 	log.Printf("Hasil upload: filename=%s, err=%v", hashedFilename, errFile)
 
 	c.JSON(http.StatusCreated, gin.H{
-		"message":      "Pengajuan cuti berhasil diajukan!",
+		"message":       "Pengajuan cuti berhasil diajukan!",
 		"file_disimpan": hashedFilename,
 	})
 }
