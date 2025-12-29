@@ -23,7 +23,11 @@ func CutiFileUpload(c *gin.Context) (string, error) {
 		return "", fmt.Errorf("gagal membaca form file: %w", err)
 	}
 	log.Printf("File ditemukan: %s (%d bytes)", fileHeader.Filename, fileHeader.Size)
-
+	const maxFileSize = 5 * 1024 * 1024 
+	if fileHeader.Size > maxFileSize {
+		c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "Ukuran file terlalu besar! Maksimal 5MB"})
+		return "", fmt.Errorf("ukuran file melebihi batas maksimal 5MB")
+	}
 	// if err != nil {
 	// 	if err == http.ErrMissingFile {
 	// 		return "", nil 

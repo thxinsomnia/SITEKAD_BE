@@ -5,22 +5,26 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"log"
 	"net/http"
+	"os"
 	"path/filepath"
 	"time"
-	"os"
-	"log"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
 
-
-
 func handleFileUpload(c *gin.Context) (string, error) {
 	fileHeader, err := c.FormFile("spl_file")
 	if err != nil {
 		return "", fmt.Errorf("file SPL wajib diunggah")
+	}
+
+	const maxFileSize = 5 * 1024 * 1024 // 5MB dalam bytes
+	if fileHeader.Size > maxFileSize {
+		c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "Ukuran file terlalu besar! Maksimal 5MB"})
+		return "", fmt.Errorf("ukuran file melebihi batas maksimal 5MB")
 	}
 
 	file, err := fileHeader.Open()
@@ -44,7 +48,6 @@ func handleFileUpload(c *gin.Context) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("gagal mereset file reader")
 	}
-
 
 	mimeType := http.DetectContentType(buffer)
 	allowedMimes := map[string]bool{
@@ -109,17 +112,17 @@ func StartOvertimeHandler(c *gin.Context) {
 	}
 
 	if latitude == "" {
-        c.JSON(http.StatusBadRequest, gin.H{"error": "Mohon Aktifkan Izin Lokasi!"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Mohon Aktifkan Izin Lokasi!"})
 		return
 	}
 	if longitude == "" {
-        c.JSON(http.StatusBadRequest, gin.H{"error": "Mohon Aktifkan Izin Lokasi!"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Mohon Aktifkan Izin Lokasi!"})
 		return
 	}
 	if androidID == "" {
-        c.JSON(http.StatusBadRequest, gin.H{"error": "Mohon Berikan Izin Akses Perangkat Agar Dapat Melakukan Absensi!"})
-        return
-    }
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Mohon Berikan Izin Akses Perangkat Agar Dapat Melakukan Absensi!"})
+		return
+	}
 	koordinat := fmt.Sprintf("%s, %s", latitude, longitude)
 	now := time.Now()
 	tanggalHariIni := now.Format("2006-01-02")
@@ -140,18 +143,18 @@ func StartOvertimeHandler(c *gin.Context) {
 	}
 
 	if errDb := models.DB.Create(&newLembur).Error; errDb != nil {
-		
+
 		uploadPath := os.Getenv("UPLOAD_PATH")
 		if uploadPath == "" {
 			uploadPath = "./uploads"
 		}
-		os.Remove(filepath.Join(uploadPath, hashedFilename)) 
+		os.Remove(filepath.Join(uploadPath, hashedFilename))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menyimpan data lembur"})
 		return
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
-		"message":      "Sesi lembur berhasil dimulai",
+		"message":       "Sesi lembur berhasil dimulai",
 		"file_disimpan": hashedFilename,
 	})
 }
@@ -197,7 +200,6 @@ func EndOvertimeHandler(c *gin.Context) {
 		c.JSON(http.StatusConflict, gin.H{"error": "Sesi lembur sudah diakhiri sebelumnya"})
 		return
 	}
-	
 
 	now := time.Now()
 	tanggalHariIni := now.Format("2006-01-02")
@@ -218,19 +220,19 @@ func EndOvertimeHandler(c *gin.Context) {
 }
 
 func GetHistoryLembur(c *gin.Context) {
-    userData, exists := c.Get("currentUser")
-    if !exists {
-        c.JSON(http.StatusUnauthorized, gin.H{"error": "Sesi pengguna tidak valid"})
-        return
-    }
-    currentUser := userData.(models.Penempatan)
-    var history []models.Lembur
-    err := models.DB.Where("penempatan_id = ?", currentUser.Id).Order("tgl_absen DESC, jam_masuk DESC").Find(&history).Error
+	userData, exists := c.Get("currentUser")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Sesi pengguna tidak valid"})
+		return
+	}
+	currentUser := userData.(models.Penempatan)
+	var history []models.Lembur
+	err := models.DB.Where("penempatan_id = ?", currentUser.Id).Order("tgl_absen DESC, jam_masuk DESC").Find(&history).Error
 
-    if err != nil {
-        c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil riwayat lembur"})
-        return
-    }
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil riwayat lembur"})
+		return
+	}
 
-    c.JSON(http.StatusOK, gin.H{"history": history})
+	c.JSON(http.StatusOK, gin.H{"history": history})
 }
